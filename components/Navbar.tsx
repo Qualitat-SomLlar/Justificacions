@@ -48,9 +48,9 @@ export default function Navbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm w-full">
+        <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-10">
+          <div className="flex items-center justify-between h-16 gap-4">
             
             {/* Logo & Brand */}
             <div className="flex items-center space-x-3">
@@ -134,7 +134,7 @@ export default function Navbar() {
               {/* User profile & Logout */}
               {user && (
                 <div className="flex items-center space-x-2 pl-2 sm:pl-3 border-l border-slate-200">
-                  <div className="hidden lg:flex flex-col text-right">
+                  <div className="hidden md:flex flex-col text-right">
                     <span className="text-xs font-bold text-slate-800 leading-tight">
                       {user.displayName || user.email?.split("@")[0]}
                     </span>
