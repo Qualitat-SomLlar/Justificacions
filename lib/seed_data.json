@@ -1,0 +1,2264 @@
+{
+  "partidas": [
+    {
+      "id": "DD_DIR.LEGAL I GI",
+      "codi": "DD_DIR.LEGAL I GI",
+      "nom": "Dir.Legal I Gi"
+    },
+    {
+      "id": "DD_FORMACIO",
+      "codi": "DD_FORMACIO",
+      "nom": "Formacio"
+    },
+    {
+      "id": "DD_RRHH",
+      "codi": "DD_RRHH",
+      "nom": "Rrhh"
+    },
+    {
+      "id": "DD_SERVEIS EXTERNS_EQUIPAMENTS",
+      "codi": "DD_SERVEIS EXTERNS_EQUIPAMENTS",
+      "nom": "Serveis Externs Equipaments"
+    },
+    {
+      "id": "DD_DIETES_DESPLAÇ",
+      "codi": "DD_DIETES_DESPLAÇ",
+      "nom": "Dietes Desplaç"
+    },
+    {
+      "id": "DD_TELEFONIA",
+      "codi": "DD_TELEFONIA",
+      "nom": "Telefonia"
+    },
+    {
+      "id": "DD_DOMOTICA PISOS",
+      "codi": "DD_DOMOTICA PISOS",
+      "nom": "Domotica Pisos"
+    },
+    {
+      "id": "DD_ARRENDAMIENTOS Y CÁNONES",
+      "codi": "DD_ARRENDAMIENTOS Y CÁNONES",
+      "nom": "Arrendamientos Y Cánones"
+    },
+    {
+      "id": "DD_SUBMINISTRAMENTS PISOS",
+      "codi": "DD_SUBMINISTRAMENTS PISOS",
+      "nom": "Subministraments Pisos"
+    },
+    {
+      "id": "DD_ASSEGURANCES PISOS",
+      "codi": "DD_ASSEGURANCES PISOS",
+      "nom": "Assegurances Pisos"
+    },
+    {
+      "id": "DD_SEGURETAT PISOS",
+      "codi": "DD_SEGURETAT PISOS",
+      "nom": "Seguretat Pisos"
+    },
+    {
+      "id": "DD_MANTENIMENT PISOS",
+      "codi": "DD_MANTENIMENT PISOS",
+      "nom": "Manteniment Pisos"
+    },
+    {
+      "id": "DD_REFORMES PISOS TIR",
+      "codi": "DD_REFORMES PISOS TIR",
+      "nom": "Reformes Pisos Tir"
+    },
+    {
+      "id": "DD_MANTENIMENT LOCALS",
+      "codi": "DD_MANTENIMENT LOCALS",
+      "nom": "Manteniment Locals"
+    },
+    {
+      "id": "DD_EXPERT PISOS",
+      "codi": "DD_EXPERT PISOS",
+      "nom": "Expert Pisos"
+    },
+    {
+      "id": "DD_MANTENIMENT SERVEIS",
+      "codi": "DD_MANTENIMENT SERVEIS",
+      "nom": "Manteniment Serveis"
+    },
+    {
+      "id": "DD_REFORMA OFICINES",
+      "codi": "DD_REFORMA OFICINES",
+      "nom": "Reforma Oficines"
+    },
+    {
+      "id": "DD_ELECTRODOMESTICS",
+      "codi": "DD_ELECTRODOMESTICS",
+      "nom": "Electrodomestics"
+    },
+    {
+      "id": "DD_PARAMENT",
+      "codi": "DD_PARAMENT",
+      "nom": "Parament"
+    },
+    {
+      "id": "DD_MOBLES",
+      "codi": "DD_MOBLES",
+      "nom": "Mobles"
+    },
+    {
+      "id": "DD_COMUNITATS",
+      "codi": "DD_COMUNITATS",
+      "nom": "Comunitats"
+    },
+    {
+      "id": "DD_IMPOSTOS_IBI",
+      "codi": "DD_IMPOSTOS_IBI",
+      "nom": "Impostos Ibi"
+    },
+    {
+      "id": "DD_IMPOSTOS_TAXARESIDUS",
+      "codi": "DD_IMPOSTOS_TAXARESIDUS",
+      "nom": "Impostos Taxaresidus"
+    },
+    {
+      "id": "DD_ASSEGURANCES TRANSVERSALS",
+      "codi": "DD_ASSEGURANCES TRANSVERSALS",
+      "nom": "Assegurances Transversals"
+    },
+    {
+      "id": "DD_LLOGUER TRANSPORT",
+      "codi": "DD_LLOGUER TRANSPORT",
+      "nom": "Lloguer Transport"
+    },
+    {
+      "id": "DD_LLOGUERS LOCALS",
+      "codi": "DD_LLOGUERS LOCALS",
+      "nom": "Lloguers Locals"
+    },
+    {
+      "id": "DD_SEGURETAT LOCALS",
+      "codi": "DD_SEGURETAT LOCALS",
+      "nom": "Seguretat Locals"
+    },
+    {
+      "id": "DD_NETEJA LOCALS",
+      "codi": "DD_NETEJA LOCALS",
+      "nom": "Neteja Locals"
+    },
+    {
+      "id": "DD_SUBMINISTRAMENTS LOCALS",
+      "codi": "DD_SUBMINISTRAMENTS LOCALS",
+      "nom": "Subministraments Locals"
+    },
+    {
+      "id": "DD_ASSEGURANCES LOCALS",
+      "codi": "DD_ASSEGURANCES LOCALS",
+      "nom": "Assegurances Locals"
+    },
+    {
+      "id": "DD_MATERIAL FUNGIBLE",
+      "codi": "DD_MATERIAL FUNGIBLE",
+      "nom": "Material Fungible"
+    },
+    {
+      "id": "DD_MATERIAL INFORMATIC",
+      "codi": "DD_MATERIAL INFORMATIC",
+      "nom": "Material Informatic"
+    },
+    {
+      "id": "DD_RENTING EPI",
+      "codi": "DD_RENTING EPI",
+      "nom": "Renting Epi"
+    },
+    {
+      "id": "DD_MATERIAL TELEFONIC",
+      "codi": "DD_MATERIAL TELEFONIC",
+      "nom": "Material Telefonic"
+    },
+    {
+      "id": "DD_MAT i ACTIVITATS PROJECTES",
+      "codi": "DD_MAT i ACTIVITATS PROJECTES",
+      "nom": "Mat I Activitats Projectes"
+    },
+    {
+      "id": "DD_CONSULTORIA INFORMATICA",
+      "codi": "DD_CONSULTORIA INFORMATICA",
+      "nom": "Consultoria Informatica"
+    },
+    {
+      "id": "DD_LLOGUER ESPAIS",
+      "codi": "DD_LLOGUER ESPAIS",
+      "nom": "Lloguer Espais"
+    },
+    {
+      "id": "DD_COMUNICACIO I DISSENY PROJEC",
+      "codi": "DD_COMUNICACIO I DISSENY PROJEC",
+      "nom": "Comunicacio I Disseny Projec"
+    },
+    {
+      "id": "DD_PROFESS ADMC i GESTIO",
+      "codi": "DD_PROFESS ADMC i GESTIO",
+      "nom": "Profess Admc I Gestio"
+    },
+    {
+      "id": "DD_QUOTES ASSOCIACIONS",
+      "codi": "DD_QUOTES ASSOCIACIONS",
+      "nom": "Quotes Associacions"
+    },
+    {
+      "id": "DD_AJUTS NO MONETARIS",
+      "codi": "DD_AJUTS NO MONETARIS",
+      "nom": "Ajuts No Monetaris"
+    },
+    {
+      "id": "DD_AJUTS MONETARIS",
+      "codi": "DD_AJUTS MONETARIS",
+      "nom": "Ajuts Monetaris"
+    },
+    {
+      "id": "DD_AUDITORIES",
+      "codi": "DD_AUDITORIES",
+      "nom": "Auditories"
+    },
+    {
+      "id": "DD_ALTRES DESPESES",
+      "codi": "DD_ALTRES DESPESES",
+      "nom": "Altres Despeses"
+    },
+    {
+      "id": "DD_IMPOSTOS_ALTRES",
+      "codi": "DD_IMPOSTOS_ALTRES",
+      "nom": "Impostos Altres"
+    },
+    {
+      "id": "DD_SERVEIS BANCARIS I SIMILARS",
+      "codi": "DD_SERVEIS BANCARIS I SIMILARS",
+      "nom": "Serveis Bancaris I Similars"
+    },
+    {
+      "id": "DD_ALTRES APROVISIO. VARIS",
+      "codi": "DD_ALTRES APROVISIO. VARIS",
+      "nom": "Altres Aprovisio. Varis"
+    },
+    {
+      "id": "DD_PRESTEC CAIXABANK",
+      "codi": "DD_PRESTEC CAIXABANK",
+      "nom": "Prestec Caixabank"
+    },
+    {
+      "id": "DD_SINISTRES INDEMNITZATS",
+      "codi": "DD_SINISTRES INDEMNITZATS",
+      "nom": "Sinistres Indemnitzats"
+    }
+  ],
+  "equivalencies": [
+    {
+      "compte": "650000000",
+      "descripcio": "AJUTS NO MONETARIS INDIVIDUALS",
+      "partida_id": "DD_AJUTS MONETARIS"
+    },
+    {
+      "compte": "650001000",
+      "descripcio": "AJUTS MONETARIS INDIVIDUALS",
+      "partida_id": "DD_AJUTS MONETARIS"
+    },
+    {
+      "compte": "651000003",
+      "descripcio": "Ajuts monetaris ALI BEI",
+      "partida_id": "DD_AJUTS MONETARIS"
+    },
+    {
+      "compte": "650000002",
+      "descripcio": "Ajuts no monet. Us Habitatge",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000003",
+      "descripcio": "Ajuts no monetaris Alimentació",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000004",
+      "descripcio": "Ajuts no monetaris Carn Halaal",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000005",
+      "descripcio": "Ajuts no monetaris Higiene/Net",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000006",
+      "descripcio": "Ajuts no monetaris Transport",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000007",
+      "descripcio": "Ajuts no monetaris Salut",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000008",
+      "descripcio": "Ajuts no monetaris Vestuari",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000009",
+      "descripcio": "Ajuts no monetaris Material escolar/infantil",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000010",
+      "descripcio": "Ajuts no monetaris Formació",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000011",
+      "descripcio": "Ajuts no monetaris Mant/Pintur",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000012",
+      "descripcio": "Ajuts no monetaris Comunicacio",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000013",
+      "descripcio": "Ajuts no monetaris Tramits",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000019",
+      "descripcio": "Ajuts no monetaris Subministraments",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000020",
+      "descripcio": "Ajuts no monetaris lleure",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000022",
+      "descripcio": "Ajuts no monetaris sortida",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "650000023",
+      "descripcio": "Ajuts no monetaris parament",
+      "partida_id": "DD_AJUTS NO MONETARIS"
+    },
+    {
+      "compte": "602100000",
+      "descripcio": "Altres Aprovisionaments varis",
+      "partida_id": "DD_ALTRES APROVISIO. VARIS"
+    },
+    {
+      "compte": "400900878",
+      "descripcio": "FORNS ENRICH, SL",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "400901132",
+      "descripcio": "LEADER BUSINESS INVESTMENTS, SL (CHARTER)",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "410900012",
+      "descripcio": "FRES.PDTS REBRE-LIDL SUPERMERCADOS S.A.U.",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "410900018",
+      "descripcio": "FRES PDTS. REBRE-CARREFOUR, SA",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "410900021",
+      "descripcio": "FRES.PDTES REBRE-CORPORACION ALIMENTARIA GUISSONA, SA (BON AREA)",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "410900693",
+      "descripcio": "FRES. PDTS. REBRE - ALFRED SMART",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "410900988",
+      "descripcio": "FRES PDNTS REBRE_PROACTIV, SL",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "632000001",
+      "descripcio": "IVA Suportat NO deduïble",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "649000000",
+      "descripcio": "Otros gastos sociales",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "658000000",
+      "descripcio": "Reintegro subv. donac. y legados recib. afecto act",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "662400000",
+      "descripcio": "INTERESSOS DEMORA REVOC SUBVENCIONS",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "669000000",
+      "descripcio": "Otros gastos financieros",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "678000000",
+      "descripcio": "AJUST SALDOS I REGULARITZACIONS",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "678000005",
+      "descripcio": "DEUTES ANTICS SUBMINISTRAMENTS",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "625000009",
+      "descripcio": "ASSEGURANÇA ACCIONS MAIS",
+      "partida_id": "DD_ASSEGURANCES TRANSVERSALS"
+    },
+    {
+      "compte": "625000010",
+      "descripcio": "ASSEGURANÇA VOLUNTARIAT",
+      "partida_id": "DD_ASSEGURANCES TRANSVERSALS"
+    },
+    {
+      "compte": "625000016",
+      "descripcio": "ASSEGURANÇA ACCIONS ESSENCIALS",
+      "partida_id": "DD_ASSEGURANCES TRANSVERSALS"
+    },
+    {
+      "compte": "410900006",
+      "descripcio": "FRES PDNTS REBRE-CRIPTIS",
+      "partida_id": "DD_AUDITORIES"
+    },
+    {
+      "compte": "629000001",
+      "descripcio": "AUDITORIA COMPTABLE",
+      "partida_id": "DD_AUDITORIES"
+    },
+    {
+      "compte": "623000005",
+      "descripcio": "REDACCIÓ MATERIALS",
+      "partida_id": "DD_COMUNICACIO I DISSENY PROJEC"
+    },
+    {
+      "compte": "520000000",
+      "descripcio": "Deudas a corto plazo con entid",
+      "partida_id": "DD_DEUTES CURT TERMINI"
+    },
+    {
+      "compte": "410900034",
+      "descripcio": "FRES PDNTS REBRE_RENFE",
+      "partida_id": "DD_DIETES_DESPLAÇ"
+    },
+    {
+      "compte": "629100002",
+      "descripcio": "ALTRES DESPESES MANUTENCIO",
+      "partida_id": "DD_DIETES_DESPLAÇ"
+    },
+    {
+      "compte": "650200000",
+      "descripcio": "DONACIONS A ENTITATS LLEI 49/2002",
+      "partida_id": "DD_DONACIONS_AJUTS"
+    },
+    {
+      "compte": "651000004",
+      "descripcio": "AJUTS A FUNDACIO SURT",
+      "partida_id": "DD_DONACIONS_AJUTS"
+    },
+    {
+      "compte": "651100001",
+      "descripcio": "Ajuts Monetaris altres entitats",
+      "partida_id": "DD_DONACIONS_AJUTS"
+    },
+    {
+      "compte": "649100000",
+      "descripcio": "DESPESES DE FORMACIÓ",
+      "partida_id": "DD_FORMACIO"
+    },
+    {
+      "compte": "649100001",
+      "descripcio": "DESPESES DE FORMACIÓ REORGANITZACIÓ",
+      "partida_id": "DD_FORMACIO"
+    },
+    {
+      "compte": "649100002",
+      "descripcio": "DESPESES DE FORMACIÓ F. SURT",
+      "partida_id": "DD_FORMACIO"
+    },
+    {
+      "compte": "678000008",
+      "descripcio": "DESPESA FORMACIO BONIFICADA",
+      "partida_id": "DD_FORMACIO"
+    },
+    {
+      "compte": "631000000",
+      "descripcio": "Otros tributos",
+      "partida_id": "DD_IMPOSTOS_ALTRES"
+    },
+    {
+      "compte": "621000010",
+      "descripcio": "Lloguer espais tallers",
+      "partida_id": "DD_LLOGUER ESPAIS"
+    },
+    {
+      "compte": "623000010",
+      "descripcio": "ORIENTACIO METODOLOGICA",
+      "partida_id": "DD_LLOGUERS LOCALS"
+    },
+    {
+      "compte": "602700000",
+      "descripcio": "Material activitats i tallers",
+      "partida_id": "DD_MAT i ACTIVITATS PROJECTES"
+    },
+    {
+      "compte": "622200005",
+      "descripcio": "Mater telef (terminals+altres)",
+      "partida_id": "DD_MATERIAL TELEFONIC"
+    },
+    {
+      "compte": "622200019",
+      "descripcio": "MATERIAL TELEFONIC/TERMINALS",
+      "partida_id": "DD_MATERIAL TELEFONIC"
+    },
+    {
+      "compte": "520000034",
+      "descripcio": "PRESTEC CAIXABANK 9620.32442936634",
+      "partida_id": "DD_PRESTEC CAIXABANK"
+    },
+    {
+      "compte": "520000035",
+      "descripcio": "PRESTEC CAIXABANK 9620.32442936973",
+      "partida_id": "DD_PRESTEC CAIXABANK"
+    },
+    {
+      "compte": "520000036",
+      "descripcio": "PRESTEC CAIXABANK 9620.32442937180",
+      "partida_id": "DD_PRESTEC CAIXABANK"
+    },
+    {
+      "compte": "520000037",
+      "descripcio": "PRESTEC CAIXABANK 9620.32551880823",
+      "partida_id": "DD_PRESTEC CAIXABANK"
+    },
+    {
+      "compte": "520000038",
+      "descripcio": "PRESTEC CAIXABANK 9620.32551880710",
+      "partida_id": "DD_PRESTEC CAIXABANK"
+    },
+    {
+      "compte": "520000001",
+      "descripcio": "PRESTEC HIPOTECARI BBVA",
+      "partida_id": "DD_PRESTEC HIPOTECARI BBVA"
+    },
+    {
+      "compte": "410900009",
+      "descripcio": "FRES. PDTS REBRE-J.M. TUR I MEIJIDE",
+      "partida_id": "DD_PROFESS ADMC i GESTIO"
+    },
+    {
+      "compte": "417001038",
+      "descripcio": "COHABITAC-Coordinadora de Fundacions d'Habitatge Social",
+      "partida_id": "DD_QUOTES ASSOCIACIONS"
+    },
+    {
+      "compte": "626000000",
+      "descripcio": "Servicios bancarios y similares",
+      "partida_id": "DD_SERVEIS BANCARIS I SIMILARS"
+    },
+    {
+      "compte": "678000007",
+      "descripcio": "DESPESES PER SINISTRES INDEMNITZADES",
+      "partida_id": "DD_SININSTRES INDEMNITZATS"
+    },
+    {
+      "compte": "520000003",
+      "descripcio": "PRESTEC ICF EUROPA 1A 5-4_023407",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000004",
+      "descripcio": "PRESTEC ICF PIRINEUS-023374",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000005",
+      "descripcio": "PRESTEC ICF PER. GRANE 168 023",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000006",
+      "descripcio": "PRESTEC ICF PINTOR CASAS",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000007",
+      "descripcio": "PRESTEC ICF MSEN ANGEL RODAMIL",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000008",
+      "descripcio": "PRESTEC ICF G.N. MONTSERRAT",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000009",
+      "descripcio": "PRESTEC ICF PERU 28 2-4",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000010",
+      "descripcio": "PRESTEC ICF PUJOS27 at-2_25483",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000011",
+      "descripcio": "PRESTEC  ICF P.GRANE149 3-5_10",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000012",
+      "descripcio": "PRESTEC ICF NAPOLS47 at-1_1004",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000013",
+      "descripcio": "PRESTEC ICF BANUS73 2-1_100398",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000014",
+      "descripcio": "PRESTEC ICF P.POVEDA5 2-1_1117",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000015",
+      "descripcio": "PRESTEC ICF TORRAS I BAGES 1 3",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000016",
+      "descripcio": "PRESTEC ICF P.FABRA38 1-1_1123",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000017",
+      "descripcio": "PRESTEC ICF ROSELLES 12 2-1_11",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000018",
+      "descripcio": "PRESTEC ICF DR.FERRAN 114 2-2_",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000019",
+      "descripcio": "PRESTEC ICF COLOM 107 Ent-2_11",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000020",
+      "descripcio": "PRESTEC ICF CAMPOAMOR44 3-1_11",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000021",
+      "descripcio": "PRESTEC ICF FONT 74 2-4_11428950",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000022",
+      "descripcio": "PRESTEC ICF MERIDIANA 560 Ent-2_11428851",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000023",
+      "descripcio": "PRESTEC ICF RENAIXAMENT 15 2-1_11428554",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000024",
+      "descripcio": "PRESTEC ICF EUROPA 1D 1-1_11428752",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000025",
+      "descripcio": "PRESTEC ICF FONT 74 3-1_11469350",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000026",
+      "descripcio": "PRESTEC ICF GOYA 41 3-2_11428455",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "520000027",
+      "descripcio": "PRESTEC ICF LISZT 69 Ent-4_11758455",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "621000000",
+      "descripcio": "Arrendamientos y cánones",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300006",
+      "descripcio": "Ints. H ICF EUROPA 1A 5-4",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300007",
+      "descripcio": "INTS. PRÉSTEC HIPOT ICF PIRINI",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300008",
+      "descripcio": "Ints. H ICF P.GRANE 168 1-2",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300009",
+      "descripcio": "INTS. PRÉSTEC HIPOT ICF PINTOR",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300010",
+      "descripcio": "INTS. PRÉSTEC HIPOT ICF MSEN A",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300011",
+      "descripcio": "INTS. PRÉSTEC HIPOT. ICF G.N.",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300012",
+      "descripcio": "INTS. PRÉSTEC HIPOT ICF PERÚ",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300013",
+      "descripcio": "INTS. PRÉSTEC HIPOT ICF PUJOS",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300014",
+      "descripcio": "Ints. H ICF P.GRANE 149 3-5",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300015",
+      "descripcio": "INTS.PRÈSTEC HIPOT ICF NAPOLS",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300016",
+      "descripcio": "INTS.PRESTEC HIPOT ICF BANUS 1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300017",
+      "descripcio": "INTS.PRESTEC HIPOT ICF PARE PO",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300018",
+      "descripcio": "INTS.PRESTEC HIPOT ICF Torra i",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300019",
+      "descripcio": "INTS.PRESTEC HIPOT ICF Pompeu",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300020",
+      "descripcio": "Ints. H ICF ROSELLES 12 2-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300021",
+      "descripcio": "INTS.PRESTEC HIPOT ICF Dr Ferr",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300022",
+      "descripcio": "INTS.PRESTEC HIPOT ICF Colom",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300023",
+      "descripcio": "INTS.PRESTEC HIPOT ICF Campoam",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300024",
+      "descripcio": "Ints. H ICF FONT 74 2-4",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300025",
+      "descripcio": "Ints. H ICF MERIDIANA 560 ent-2",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300026",
+      "descripcio": "Ints. H ICF RENAIX 15 2-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300027",
+      "descripcio": "Ints. H ICF EUROPA 1D 1-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300028",
+      "descripcio": "Ints. H ICF FONT 74 3-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300029",
+      "descripcio": "Ints. H ICF GOYA 41 3-2",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300030",
+      "descripcio": "Ints. H ICF LISZT 69 ENT-4",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300031",
+      "descripcio": "Ints. H ICF LEPANT49 4-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300032",
+      "descripcio": "Ints. H ICF A.GINABREDA8 4-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300033",
+      "descripcio": "Ints. H ICF ROSELLES 42 BX-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300034",
+      "descripcio": "Ints. H ICF IRLANDA 102 1-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300035",
+      "descripcio": "Ints. H ICF MERIDIANA 629 bx-1",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300036",
+      "descripcio": "Ints. H ICF VINAROS 13 2-1_12234456",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300037",
+      "descripcio": "Ints. PRESTEC CAIXABANK 9620.32442936634",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300038",
+      "descripcio": "Ints. PRESTEC CAIXABANK 9620.32442936973",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300039",
+      "descripcio": "Ints. PRESTEC CAIXABANK 9620.32442937180",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300040",
+      "descripcio": "Ints. PRESTEC CAIXABANK 9620.32551880823",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300041",
+      "descripcio": "Ints. PRESTEC CAIXABANK 9620.32551880710",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300071",
+      "descripcio": "Ints. H ICF DE LA CREU_2_2_12442356",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "662300072",
+      "descripcio": "Ints. H ICF CALAF_42_Bl15_Esc1_3-1_012527453",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "625000001",
+      "descripcio": "ASSEGURANCES HABITATGES",
+      "partida_id": "DD_ASSEGURANCES PISOS"
+    },
+    {
+      "compte": "554000001",
+      "descripcio": "CP BAIX 29",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000002",
+      "descripcio": "CP M.A. RODAMILANS 184",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000003",
+      "descripcio": "CP G.MONTSERRAT 24",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000004",
+      "descripcio": "CP PERIODISTA GRANE 168",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000005",
+      "descripcio": "CP PINTOR CASAS 60",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000006",
+      "descripcio": "CP EUROPA 1A",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000007",
+      "descripcio": "CP PERU, 28",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000008",
+      "descripcio": "CP PIRINEUS 116",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000009",
+      "descripcio": "CP PARKING PINTOR CASAS-MIR",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000010",
+      "descripcio": "CP PERIODISTA GRANE 149",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000011",
+      "descripcio": "CP PUJOS 27",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000012",
+      "descripcio": "CP NAPOLS 47",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000013",
+      "descripcio": "CP ESCOLAPI CANCER, 1-7",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000014",
+      "descripcio": "CP BANUS 73",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000016",
+      "descripcio": "CP DR FERRAN 114",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000017",
+      "descripcio": "CP COLOM 107-109",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000018",
+      "descripcio": "CP TORRAS i BAGES 1 - STACO",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000019",
+      "descripcio": "CP ROSELLES 12",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000020",
+      "descripcio": "CP FONT 74",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000021",
+      "descripcio": "CP POMPEU FABRA 38",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000022",
+      "descripcio": "CP EUROPA 1D",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000023",
+      "descripcio": "CP CAMPOAMOR 44",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000025",
+      "descripcio": "CP LISZT 69",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000026",
+      "descripcio": "CP MERIDIANA 560 ent-2",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000027",
+      "descripcio": "CP RENAIXAMENT 15",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000028",
+      "descripcio": "CP LEPANT 49",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000029",
+      "descripcio": "CP ALEIX AGUILERA GINABREDA 8",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000030",
+      "descripcio": "CP ROSELLES 42",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "554000032",
+      "descripcio": "CP IRLANDA 102",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "622200001",
+      "descripcio": "ELECTRODOMESTICS",
+      "partida_id": "DD_ELECTRODOMESTICS"
+    },
+    {
+      "compte": "631000002",
+      "descripcio": "IBI C/ BAIX, 29-TERRASSA",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000007",
+      "descripcio": "IBI C/EUROPA, 1A 5-4",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000008",
+      "descripcio": "IBI C/PIRINEUS, 116",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000009",
+      "descripcio": "IBI C/PERIODISTA GRANE 168",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000010",
+      "descripcio": "IBI C/PINTOR CASAS, 60",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000011",
+      "descripcio": "IBI C/M.A. RODAMILANS,184",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000012",
+      "descripcio": "IBI C/G.  MONTSERRAT, 24",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000013",
+      "descripcio": "IBI C/PERÚ, 28",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000021",
+      "descripcio": "IBI C/PERIODISTA GRANE, 149",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000024",
+      "descripcio": "IBI - PUJOS 27 AT-2",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000026",
+      "descripcio": "IBI - NAPOLS 47 AT-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000028",
+      "descripcio": "IBI - PARE POVEDA 5 2-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000030",
+      "descripcio": "IBI - CAMPOAMOR 44 3-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000033",
+      "descripcio": "IBI - BANUS 73 1-2",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000035",
+      "descripcio": "IBI - TORRAS I BAGES 1 3-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000037",
+      "descripcio": "IBI - POMPEU FABRA 38 1-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000039",
+      "descripcio": "IBI - ROSELLES 12 2-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000041",
+      "descripcio": "IBI - EUROPA 1D 1-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000043",
+      "descripcio": "IBI - FONT 74 2-4",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000045",
+      "descripcio": "IBI - FONT 74 3-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000047",
+      "descripcio": "IBI - COLOM 107 ENT-2",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000049",
+      "descripcio": "IBI - DR FERRAN 114 2-2",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000051",
+      "descripcio": "IBI - RENAIXAMENT 15 2-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000053",
+      "descripcio": "IBI - ROSELLES 42 bx-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000055",
+      "descripcio": "IBI - LISZT 69 ent-4",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000057",
+      "descripcio": "IBI - MERIDIANA 560-562 ent-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000064",
+      "descripcio": "IBI -GOYA 41 3-2",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000066",
+      "descripcio": "IBI -LEPANT 49 4-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000067",
+      "descripcio": "IBI -A.AGUILERA G. 8 BX-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000069",
+      "descripcio": "IBI -VINAROS 13 2-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000071",
+      "descripcio": "IBI -IRLANDA 102 1-1",
+      "partida_id": "DD_IMPOSTOS_IBI"
+    },
+    {
+      "compte": "631000003",
+      "descripcio": "TAXA RESIDUS C/BAIX, 29-TERRAS",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000014",
+      "descripcio": "TAXA RESIDUS C/EUROPA, 1 5-4",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000015",
+      "descripcio": "TAXA RESIDUS C/PIRINEUS, 116",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000016",
+      "descripcio": "RESIDUS C/P. GRANE 168",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000017",
+      "descripcio": "TAXA RESIDUS C/PINTOR CASAS, 6",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000018",
+      "descripcio": "TAXA RESIDUS C/M.A. RODAMILANS",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000019",
+      "descripcio": "TAXA RESIDUS C/G.  MONTSERRAT,",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000020",
+      "descripcio": "TAXA RESIDUS C/PERU, 28",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000022",
+      "descripcio": "RESIDUS - P.GRANE 149 3-5",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000023",
+      "descripcio": "TAXES SUBMIN. AIGUA",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000025",
+      "descripcio": "RESIDUS - PUJOS 27",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000027",
+      "descripcio": "RESIDUS -NAPOLS 47",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000029",
+      "descripcio": "RESIDUS - PARE POVEDA 5 2-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000034",
+      "descripcio": "RESIDUS - BANUS 73 1-2",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000036",
+      "descripcio": "RESIDUS - TORRAS I BAGES 1 3-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000038",
+      "descripcio": "RESIDUS - POMPEU FABRA 38 1-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000040",
+      "descripcio": "RESIDUS - ROSELLES 12 2-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000042",
+      "descripcio": "RESIDUS - EUROPA 1D 1-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000044",
+      "descripcio": "RESIDUS - FONT 74 2-4",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000046",
+      "descripcio": "RESIDUS - FONT 74 3-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000048",
+      "descripcio": "RESIDUS - COLOM 1017 ENT-2",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000050",
+      "descripcio": "RESIDUS - DR FERRAN 114 2-2",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000052",
+      "descripcio": "RESIDUS - RENAIXAMENT 15 2-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000054",
+      "descripcio": "RESIDUS - ROSELLES 42 bx-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000056",
+      "descripcio": "RESIDUS - LISZT 69 ent-4",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000061",
+      "descripcio": "RESIDUS -SANT PAU 9",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000062",
+      "descripcio": "RESUDUS -CAMPOAMOR 44 3-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000063",
+      "descripcio": "RESIDUS -GOYA 41 3-2",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000065",
+      "descripcio": "RESIDUS -LEPANT 49 4-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000068",
+      "descripcio": "RESIDUS -A.AGUILERA G. 8 BX-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000070",
+      "descripcio": "RESIDUS -VINAROS 13 2-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "631000072",
+      "descripcio": "RESIDUS -IRLANDA 102 1-1",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "622000002",
+      "descripcio": "MANTENIMENT PISOS EN PROPIETAT",
+      "partida_id": "DD_MANTENIMENT PISOS"
+    },
+    {
+      "compte": "622000004",
+      "descripcio": "MANTENIMENT - PINTURA",
+      "partida_id": "DD_MANTENIMENT PISOS"
+    },
+    {
+      "compte": "622000005",
+      "descripcio": "MANTENIMENT - NETEGES",
+      "partida_id": "DD_MANTENIMENT PISOS"
+    },
+    {
+      "compte": "622000009",
+      "descripcio": "MANTENIMENT - MATERIALS I CONS",
+      "partida_id": "DD_MANTENIMENT PISOS"
+    },
+    {
+      "compte": "622000011",
+      "descripcio": "REPARACIONS I MANTENIMENT TiR",
+      "partida_id": "DD_MANTENIMENT PISOS"
+    },
+    {
+      "compte": "622200002",
+      "descripcio": "MOBLES",
+      "partida_id": "DD_MOBLES"
+    },
+    {
+      "compte": "622200003",
+      "descripcio": "PARAMENT",
+      "partida_id": "DD_PARAMENT"
+    },
+    {
+      "compte": "622000006",
+      "descripcio": "SEGURETAT - PORTES I REIXES AN",
+      "partida_id": "DD_SEGURETAT PISOS"
+    },
+    {
+      "compte": "622000007",
+      "descripcio": "SEGURETAT - ALARMES",
+      "partida_id": "DD_SEGURETAT PISOS"
+    },
+    {
+      "compte": "622000008",
+      "descripcio": "SEGURETAT - SERRALLERS (CLAUS,",
+      "partida_id": "DD_SEGURETAT PISOS"
+    },
+    {
+      "compte": "628100000",
+      "descripcio": "AIGUA HABITATGES-COMPTADORS",
+      "partida_id": "DD_SUBMINISTRAMENTS PISOS"
+    },
+    {
+      "compte": "628100001",
+      "descripcio": "AIGUA HABITATGES",
+      "partida_id": "DD_SUBMINISTRAMENTS PISOS"
+    },
+    {
+      "compte": "628200001",
+      "descripcio": "ELECTRICITAT HABITATGES",
+      "partida_id": "DD_SUBMINISTRAMENTS PISOS"
+    },
+    {
+      "compte": "628400000",
+      "descripcio": "GAS",
+      "partida_id": "DD_SUBMINISTRAMENTS PISOS"
+    },
+    {
+      "compte": "520000033",
+      "descripcio": "PRESTEC ICF VINAROS 13 2-1_12234456",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "554000033",
+      "descripcio": "CP VINAROS 13 2-1",
+      "partida_id": "DD_COMUNITATS"
+    },
+    {
+      "compte": "628200000",
+      "descripcio": "ELECTRICITAT",
+      "partida_id": "DD_SUBMINISTRAMENTS PISOS"
+    },
+    {
+      "compte": "631000074",
+      "descripcio": "RESIDUS-URGELL 37 bx-4 LOCAL",
+      "partida_id": "DD_IMPOSTOS_TAXARESIDUS"
+    },
+    {
+      "compte": "662300042",
+      "descripcio": "Ints. H ICF EXTREMADURA_3_Bloc2_2-dreta_XXXXX",
+      "partida_id": "DD_ARRENDAMIENTOS Y CÁNONES"
+    },
+    {
+      "compte": "622000003",
+      "descripcio": "MANTENIMENT PISOS LLOGUER/CESS",
+      "partida_id": "DD_MANTENIMENT PISOS"
+    },
+    {
+      "compte": "622200006",
+      "descripcio": "Material activitats i tallers",
+      "partida_id": "DD_MAT i ACTIVITATS PROJECTES"
+    },
+    {
+      "compte": "625000004",
+      "descripcio": "ASSEGURANÇA OFICINES",
+      "partida_id": "DD_ASSEGURANCES LOCALS"
+    },
+    {
+      "compte": "621000007",
+      "descripcio": "Lloguer locals PH",
+      "partida_id": "DD_LLOGUERS LOCALS"
+    },
+    {
+      "compte": "621000008",
+      "descripcio": "Lloguer parking PH",
+      "partida_id": "DD_LLOGUERS LOCALS"
+    },
+    {
+      "compte": "622000000",
+      "descripcio": "Reparaciones y conservación",
+      "partida_id": "DD_MANTENIMENT LOCALS"
+    },
+    {
+      "compte": "622000001",
+      "descripcio": "REPARACIONS ACONDICIONAMENT OF CONC TRENTRO, 46",
+      "partida_id": "DD_MANTENIMENT LOCALS"
+    },
+    {
+      "compte": "622100000",
+      "descripcio": "MANTENIMENT OFICINES PH",
+      "partida_id": "DD_MANTENIMENT LOCALS"
+    },
+    {
+      "compte": "622100001",
+      "descripcio": "SEGURETAT OFICINES PH",
+      "partida_id": "DD_SEGURETAT LOCALS"
+    },
+    {
+      "compte": "628100002",
+      "descripcio": "AIGUA OFICINA BCN",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "628100003",
+      "descripcio": "AIGUA OFICINA ST PAU 9-TERRASS",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "628200002",
+      "descripcio": "ELECTRICITAT OFICINA BCN",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "628200003",
+      "descripcio": "ELECTRICITAT OFICINA SP9",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "628200004",
+      "descripcio": "ELECTRICITAT OFICINA URGELL37_PRAT",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "628200005",
+      "descripcio": "ELECTRICITAT OFICINA ROMA67_STACO",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "628100004",
+      "descripcio": "AIGUA OFICINA URGELL 37_EL PRAT",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "628100005",
+      "descripcio": "AIGUA OFICINA ROMA 67_STA COLOMA",
+      "partida_id": "DD_SUBMINISTRAMENTS LOCALS"
+    },
+    {
+      "compte": "629300013",
+      "descripcio": "MATERIAL OFICINA - PITAGORES5b ENT-3_RUBI",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "622100002",
+      "descripcio": "NETEJA OFICINES PH",
+      "partida_id": "DD_NETEJA LOCALS"
+    },
+    {
+      "compte": "400900004",
+      "descripcio": "ATM-AUTORITAT DEL TRANSPORT METROPOLITÀ",
+      "partida_id": "DD_DIETES_DESPLAÇ"
+    },
+    {
+      "compte": "629100000",
+      "descripcio": "DIETES I DESPLAÇAMENTS TREBALL",
+      "partida_id": "DD_DIETES_DESPLAÇ"
+    },
+    {
+      "compte": "629300004",
+      "descripcio": "MATERIAL OFICINA - APROP",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629300006",
+      "descripcio": "MATERIAL OFICINA - ALI BEI",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629300009",
+      "descripcio": "MATERIAL OFICINA - URGELL37_PRAT",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629300010",
+      "descripcio": "MATERIAL OFICINA - ROMA67_STACO",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629300011",
+      "descripcio": "MATERIAL OFICINA - BUNYOLA_PRAT",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629300012",
+      "descripcio": "MATERIAL OFICINA - DR. RAMON I SOLANICH13_HOSP",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629000003",
+      "descripcio": "Serveis ext. Treball familiar",
+      "partida_id": "DD_SERVEIS EXTERNS_EQUIPAMENTS"
+    },
+    {
+      "compte": "629000004",
+      "descripcio": "Serveis ext. Psicologia SPMB",
+      "partida_id": "DD_SERVEIS EXTERNS_EQUIPAMENTS"
+    },
+    {
+      "compte": "629000005",
+      "descripcio": "Serveis ext. Psicologia SOAF",
+      "partida_id": "DD_SERVEIS EXTERNS_EQUIPAMENTS"
+    },
+    {
+      "compte": "629000006",
+      "descripcio": "Serveis ext. Psicologia APROP",
+      "partida_id": "DD_SERVEIS EXTERNS_EQUIPAMENTS"
+    },
+    {
+      "compte": "621000026",
+      "descripcio": "RENTING Furgo 6800.71.0291788-91_FORD_6411MWB_TRRSS",
+      "partida_id": "DD_LLOGUER TRANSPORT"
+    },
+    {
+      "compte": "621000027",
+      "descripcio": "RENTING Furgo 6800.71.0291786-65_FORD_1890MVR_BCN",
+      "partida_id": "DD_LLOGUER TRANSPORT"
+    },
+    {
+      "compte": "622000015",
+      "descripcio": "REPARACIONS VEHICLES",
+      "partida_id": "DD_LLOGUER TRANSPORT"
+    },
+    {
+      "compte": "624000000",
+      "descripcio": "Transportes",
+      "partida_id": "DD_LLOGUER TRANSPORT"
+    },
+    {
+      "compte": "629200000",
+      "descripcio": "BENZINA",
+      "partida_id": "DD_LLOGUER TRANSPORT"
+    },
+    {
+      "compte": "629400000",
+      "descripcio": "CORREUS",
+      "partida_id": "DD_LLOGUER TRANSPORT"
+    },
+    {
+      "compte": "623000001",
+      "descripcio": "NOTARIS",
+      "partida_id": "DD_EXPERT PISOS"
+    },
+    {
+      "compte": "623000003",
+      "descripcio": "REGISTRADORS",
+      "partida_id": "DD_EXPERT PISOS"
+    },
+    {
+      "compte": "623000007",
+      "descripcio": "GESTORS IMMOBILIARIS - TRAMITA",
+      "partida_id": "DD_EXPERT PISOS"
+    },
+    {
+      "compte": "631000073",
+      "descripcio": "TAXA LLICENCIES URBANISTIQUES",
+      "partida_id": "DD_EXPERT PISOS"
+    },
+    {
+      "compte": "625000002",
+      "descripcio": "ASSEGURANÇA RESP. CIVIL",
+      "partida_id": "DD_RRHH"
+    },
+    {
+      "compte": "625000003",
+      "descripcio": "ASSEGURANÇA ACCIDENTS",
+      "partida_id": "DD_RRHH"
+    },
+    {
+      "compte": "629300000",
+      "descripcio": "MATERIAL OFICINA",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629300001",
+      "descripcio": "MATERIAL OFICINA - SC",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "629300002",
+      "descripcio": "MATERIAL OFICINA - OT",
+      "partida_id": "DD_MATERIAL FUNGIBLE"
+    },
+    {
+      "compte": "627000000",
+      "descripcio": "Publicidad, propaganda y relac",
+      "partida_id": "DD_COMUNICACIO I DISSENY PROJEC"
+    },
+    {
+      "compte": "627000001",
+      "descripcio": "Publicitat i comunicacio SOM L",
+      "partida_id": "DD_COMUNICACIO I DISSENY PROJEC"
+    },
+    {
+      "compte": "629500002",
+      "descripcio": "CONSULTORIA RRHH",
+      "partida_id": "DD_CONSULTORIA INFORMATICA"
+    },
+    {
+      "compte": "629500003",
+      "descripcio": "CONSULTORIA INFORMÀTICA - PROJ",
+      "partida_id": "DD_CONSULTORIA INFORMATICA"
+    },
+    {
+      "compte": "629500004",
+      "descripcio": "CONSULTORIA INFORMÀTICA REORGA",
+      "partida_id": "DD_CONSULTORIA INFORMATICA"
+    },
+    {
+      "compte": "629500006",
+      "descripcio": "CMR_SINERGIA",
+      "partida_id": "DD_CONSULTORIA INFORMATICA"
+    },
+    {
+      "compte": "622000012",
+      "descripcio": "DOMOTICA-MANTENIMENT-DADES",
+      "partida_id": "DD_DOMOTICA PISOS"
+    },
+    {
+      "compte": "622100003",
+      "descripcio": "MANTENIMENT INFORMATIC",
+      "partida_id": "DD_MATERIAL INFORMATIC"
+    },
+    {
+      "compte": "622200004",
+      "descripcio": "MATERIAL INFORMATIC",
+      "partida_id": "DD_MATERIAL INFORMATIC"
+    },
+    {
+      "compte": "410900476",
+      "descripcio": "FARRERONS ASSESSORS, SLU",
+      "partida_id": "DD_PROFESS ADMC i GESTIO"
+    },
+    {
+      "compte": "623000000",
+      "descripcio": "Servicios de profesionales independientes",
+      "partida_id": "DD_PROFESS ADMC i GESTIO"
+    },
+    {
+      "compte": "623000004",
+      "descripcio": "ASSESSORIA LEGAL",
+      "partida_id": "DD_PROFESS ADMC i GESTIO"
+    },
+    {
+      "compte": "623000009",
+      "descripcio": "Traductors",
+      "partida_id": "DD_PROFESS ADMC i GESTIO"
+    },
+    {
+      "compte": "623100000",
+      "descripcio": "ASSESSORIA COMPTABLE",
+      "partida_id": "DD_PROFESS ADMC i GESTIO"
+    },
+    {
+      "compte": "623100001",
+      "descripcio": "ASSESSORIA LABORAL",
+      "partida_id": "DD_PROFESS ADMC i GESTIO"
+    },
+    {
+      "compte": "621000006",
+      "descripcio": "RENTING Impressora SC-CT46_Ccte GRENKE 063-53971",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000011",
+      "descripcio": "RENTING impressora SP9",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000021",
+      "descripcio": "RENTING impressora RICOH SP9",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000022",
+      "descripcio": "RENTING 3 portatils HP-CSG114",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000023",
+      "descripcio": "RENTING equips 6800-76-0088300-96",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000024",
+      "descripcio": "RENTING Furgo 6800.71.0291789-04_RENAULT_8502MRM_TRRSS",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000025",
+      "descripcio": "RENTING equips 6800-76-0090814-59",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000028",
+      "descripcio": "RENTING impressores URGELL37_PRAT i ROMA67_STACO_Ccte GRENKE 063-71147",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000029",
+      "descripcio": "RENTING impressora RRHH de CSG114_BCN_Ccte GRENKE 063-70677",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "621000030",
+      "descripcio": "RENTING equips_BBVA 01821023050500000000216348",
+      "partida_id": "DD_RENTING EPI"
+    },
+    {
+      "compte": "628300000",
+      "descripcio": "COMUNICACIONS",
+      "partida_id": "DD_TELEFONIA"
+    },
+    {
+      "compte": "629500001",
+      "descripcio": "SERVEIS DIGITALS I D'INTERNET",
+      "partida_id": "DD_TELEFONIA"
+    },
+    {
+      "compte": "622200007",
+      "descripcio": "DOMOTICA-ELEMENTS",
+      "partida_id": "DD_DOMOTICA PISOS"
+    },
+    {
+      "compte": "651000005",
+      "descripcio": "AJUTS MONETARIS SORTIDA",
+      "partida_id": "DD_AJUTS MONETARIS"
+    },
+    {
+      "compte": "600000000",
+      "descripcio": "Compras de bienes destinados a la actividad",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "608000000",
+      "descripcio": "Devoluciones de compras de bienes destinados activ",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "608000000",
+      "descripcio": "Devoluciones de compras de bienes destinados activ",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "678000001",
+      "descripcio": "RECÀRRECS I SANCIONS HISENDA",
+      "partida_id": "DD_ALTRES DESPESES"
+    },
+    {
+      "compte": "649000005",
+      "descripcio": "Dir. Legal i GI",
+      "partida_id": "DD_DIR.LEGAL I GI"
+    }
+  ],
+  "projectes": [
+    {
+      "id": "APROP22",
+      "codi": "APROP22",
+      "nom": "APROP22",
+      "financador": "IMSSBCN",
+      "area": "PIRBCNES",
+      "dates_text": "01/01/2026-06/11/2026",
+      "actiu": true
+    },
+    {
+      "id": "HISSL323",
+      "codi": "HISSL323",
+      "nom": "HISSL323",
+      "financador": "IMSSBCN",
+      "area": "PIRBCNES",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "ALIBEI23",
+      "codi": "ALIBEI23",
+      "nom": "ALIBEI23",
+      "financador": "IMSSBCN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "NAUSI126",
+      "codi": "NAUSI126",
+      "nom": "NAUSI126",
+      "financador": "AJBCN",
+      "area": "PIRBCNES",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SLT21",
+      "codi": "SLT21",
+      "nom": "SLT21",
+      "financador": "IFEGEN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SLVO221",
+      "codi": "SLVO221",
+      "nom": "SLVO221",
+      "financador": "IFEGEN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SLVO121",
+      "codi": "SLVO121",
+      "nom": "SLVO121",
+      "financador": "IFEGEN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SLB21",
+      "codi": "SLB21",
+      "nom": "SLB21",
+      "financador": "IFEGEN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "HIM26",
+      "codi": "HIM26",
+      "nom": "HIM26",
+      "financador": "IMSSBCN",
+      "area": "PIRBCNES",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "NES26",
+      "codi": "NES26",
+      "nom": "NES26",
+      "financador": "IFEGEN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SEIIR26",
+      "codi": "SEIIR26",
+      "nom": "SEIIR26",
+      "financador": "IFEGEN",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "WIP26",
+      "codi": "WIP26",
+      "nom": "WIP26",
+      "financador": "IFEGEN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "NORA26",
+      "codi": "NORA26",
+      "nom": "NORA26",
+      "financador": "GENCATDS",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "YASMIN26",
+      "codi": "YASMIN26",
+      "nom": "YASMIN26",
+      "financador": "GENCATDS",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SAMARA",
+      "codi": "SAMARA",
+      "nom": "SAMARA",
+      "financador": "AJBCN",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "NOS26",
+      "codi": "NOS26",
+      "nom": "NOS26",
+      "financador": "DSCONVO",
+      "area": "PIRBCNES",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "PIRB26",
+      "codi": "PIRB26",
+      "nom": "PIRB26",
+      "financador": "DSCONVO",
+      "area": "PIRBCNES",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "PIRVO26",
+      "codi": "PIRVO26",
+      "nom": "PIRVO26",
+      "financador": "DSCONVO",
+      "area": "PIRVO25",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "HORIB26",
+      "codi": "HORIB26",
+      "nom": "HORIB26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "HORIVO26",
+      "codi": "HORIVO26",
+      "nom": "HORIVO26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SAU26",
+      "codi": "SAU26",
+      "nom": "SAU26",
+      "financador": "AJT",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SALUTM26",
+      "codi": "SALUTM26",
+      "nom": "SALUTM26",
+      "financador": "DSCONVO",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "MERID26",
+      "codi": "MERID26",
+      "nom": "MERID26",
+      "financador": "DSCONVO",
+      "area": "GI",
+      "dates_text": "01/01/2026-26/05/2026",
+      "actiu": true
+    },
+    {
+      "id": "VINA26",
+      "codi": "VINA26",
+      "nom": "VINA26",
+      "financador": "DSCONVO",
+      "area": "GI",
+      "dates_text": "01/01/2026-29/05/2026",
+      "actiu": true
+    },
+    {
+      "id": "XHI2025",
+      "codi": "XHI2025",
+      "nom": "XHI2025",
+      "financador": "AHC",
+      "area": "GI",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "XHI25",
+      "codi": "XHI25",
+      "nom": "XHI25",
+      "financador": "DIBA",
+      "area": "PIR",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "ESSB26",
+      "codi": "ESSB26",
+      "nom": "ESSB26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "ESSVO26",
+      "codi": "ESSVO26",
+      "nom": "ESSVO26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "PERISC26",
+      "codi": "PERISC26",
+      "nom": "PERISC26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "REBB26",
+      "codi": "REBB26",
+      "nom": "REBB26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "REBVO26",
+      "codi": "REBVO26",
+      "nom": "REBVO26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "MATB26",
+      "codi": "MATB26",
+      "nom": "MATB26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "MATVO26",
+      "codi": "MATVO26",
+      "nom": "MATVO26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SOMAL26",
+      "codi": "SOMAL26",
+      "nom": "SOMAL26",
+      "financador": "DSCONVO",
+      "area": "DO",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "XUP26",
+      "codi": "XUP26",
+      "nom": "XUP26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "SOAF26",
+      "codi": "SOAF26",
+      "nom": "SOAF26",
+      "financador": "DSCONVO",
+      "area": "INC",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "PROX26",
+      "codi": "PROX26",
+      "nom": "PROX26",
+      "financador": "DSCONVO",
+      "area": "DO",
+      "dates_text": "01/01/2025-31/12/2025",
+      "actiu": true
+    },
+    {
+      "id": "MAISB25",
+      "codi": "MAISB25",
+      "nom": "MAISB25",
+      "financador": "DTGENCAT",
+      "area": "INC",
+      "dates_text": "01/05/2025-30/04/2026",
+      "actiu": true
+    },
+    {
+      "id": "MAIST1_25",
+      "codi": "MAIST1_25",
+      "nom": "MAIST1_25",
+      "financador": "DTGENCAT",
+      "area": "INC",
+      "dates_text": "01/05/2025-30/04/2026",
+      "actiu": true
+    },
+    {
+      "id": "MAIST2_25",
+      "codi": "MAIST2_25",
+      "nom": "MAIST2_25",
+      "financador": "DTGENCAT",
+      "area": "INC",
+      "dates_text": "01/06/2025-30/04/2026",
+      "actiu": true
+    },
+    {
+      "id": "MAISPR5",
+      "codi": "MAISPR5",
+      "nom": "MAISPR5",
+      "financador": "DTGENCAT",
+      "area": "INC",
+      "dates_text": "01/09/2025-30/04/2026",
+      "actiu": true
+    },
+    {
+      "id": "CVIO25",
+      "codi": "CVIO25",
+      "nom": "CVIO25",
+      "financador": "MINISTIG",
+      "area": "GEN",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "FIT2526",
+      "codi": "FIT2526",
+      "nom": "FIT2526",
+      "financador": "DTGENCAT",
+      "area": "SG",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    },
+    {
+      "id": "PIRLH25",
+      "codi": "PIRLH25",
+      "nom": "PIRLH25",
+      "financador": "AJLH",
+      "area": "PIRBCNES",
+      "dates_text": "01/01/2026-31/12/2026",
+      "actiu": true
+    }
+  ]
+}
