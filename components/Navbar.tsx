@@ -14,14 +14,18 @@ import {
   AlertTriangle,
   Building2,
   Calendar,
-  History
+  History,
+  LogOut,
+  User as UserIcon
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
+import { useAuth } from "@/lib/auth";
 import ImportModal from "./ImportModal";
 
 export default function Navbar() {
   const pathname = usePathname();
   const { despeses, activeExercici, setActiveExercici, exportToExcel } = useJustificacions();
+  const { user, logout } = useAuth();
   const [isImportOpen, setIsImportOpen] = useState(false);
 
   const pendingCount = despeses.filter(d => d.estat === "pendent").length;
@@ -126,6 +130,27 @@ export default function Navbar() {
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Exportar Excel</span>
               </button>
+
+              {/* User profile & Logout */}
+              {user && (
+                <div className="flex items-center space-x-2 pl-2 sm:pl-3 border-l border-slate-200">
+                  <div className="hidden lg:flex flex-col text-right">
+                    <span className="text-xs font-bold text-slate-800 leading-tight">
+                      {user.displayName || user.email?.split("@")[0]}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {user.email}
+                    </span>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                    title={`Tancar sessió (${user.email})`}
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

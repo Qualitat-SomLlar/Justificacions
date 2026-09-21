@@ -5,6 +5,15 @@ import { Despesa, Imputacio, Projecte, Partida, Equivalencia, ImportSummary, Log
 import { parseA3Excel } from "./parser";
 import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
+import { auth } from "./firebase";
+import {
+  fetchRemoteData,
+  syncProjectesToFirestore,
+  syncEquivalenciesToFirestore,
+  syncDespesesToFirestore,
+  syncImputacionsToFirestore,
+  syncHistorialToFirestore
+} from "./firestore_sync";
 
 interface JustificacionsContextType {
   despeses: Despesa[];
@@ -14,6 +23,7 @@ interface JustificacionsContextType {
   equivalencies: Equivalencia[];
   historial: LogEntry[];
   isLoading: boolean;
+  isCloudSynced: boolean;
   activeExercici: number;
   setActiveExercici: (y: number) => void;
   importA3File: (fileBuffer: ArrayBuffer) => Promise<ImportSummary>;
@@ -56,9 +66,10 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   const [equivalencies, setEquivalencies] = useState<Equivalencia[]>([]);
   const [historial, setHistorial] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
   const [activeExercici, setActiveExercici] = useState<number>(2026);
 
-  // Initialize from localStorage or fallback to seedData
+  // Initialize from localStorage and sync from Firestore in background
   useEffect(() => {
     try {
       const storedPartides = localStorage.getItem(STORAGE_KEYS.PARTIDES);
@@ -99,7 +110,6 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       if (storedHistorial) {
         setHistorial(JSON.parse(storedHistorial));
       } else {
-        // Initial welcome log
         const initialLog: LogEntry = {
           id: `log_init`,
           timestamp: new Date().toISOString(),
@@ -117,32 +127,74 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     } finally {
       setIsLoading(false);
     }
-  }, []);
 
-  // Save changes to localStorage
+    // Background Firestore Sync
+    fetchRemoteData(activeExercici).then((remote) => {
+      if (remote) {
+        setIsCloudSynced(true);
+        if (remote.projectes && remote.projectes.length > 0) {
+          setProjectes(remote.projectes);
+          localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(remote.projectes));
+        } else {
+          syncProjectesToFirestore(seedData.projectes as Projecte[]);
+        }
+
+        if (remote.equivalencies && remote.equivalencies.length > 0) {
+          setEquivalencies(remote.equivalencies);
+          localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(remote.equivalencies));
+        } else {
+          syncEquivalenciesToFirestore(seedData.equivalencies as Equivalencia[]);
+        }
+
+        if (remote.despeses && remote.despeses.length > 0) {
+          setDespeses(remote.despeses);
+          localStorage.setItem(STORAGE_KEYS.DESPESES, JSON.stringify(remote.despeses));
+        }
+
+        if (remote.imputacions && remote.imputacions.length > 0) {
+          setImputacions(remote.imputacions);
+          localStorage.setItem(STORAGE_KEYS.IMPUTACIONS, JSON.stringify(remote.imputacions));
+        }
+
+        if (remote.historial && remote.historial.length > 0) {
+          setHistorial(remote.historial);
+          localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(remote.historial));
+        }
+      }
+    }).catch(err => {
+      console.warn("Firestore background connect warning:", err);
+    });
+  }, [activeExercici]);
+
+  // Save changes to localStorage & Cloud Firestore
   const persistDespeses = (updated: Despesa[]) => {
     setDespeses(updated);
     localStorage.setItem(STORAGE_KEYS.DESPESES, JSON.stringify(updated));
+    syncDespesesToFirestore(activeExercici, updated);
   };
 
   const persistImputacions = (updated: Imputacio[]) => {
     setImputacions(updated);
     localStorage.setItem(STORAGE_KEYS.IMPUTACIONS, JSON.stringify(updated));
+    syncImputacionsToFirestore(activeExercici, updated);
   };
 
   const persistProjectes = (updated: Projecte[]) => {
     setProjectes(updated);
     localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(updated));
+    syncProjectesToFirestore(updated);
   };
 
   const persistEquivalencies = (updated: Equivalencia[]) => {
     setEquivalencies(updated);
     localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(updated));
+    syncEquivalenciesToFirestore(updated);
   };
 
   const persistHistorial = (updated: LogEntry[]) => {
     setHistorial(updated);
     localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(updated));
+    syncHistorialToFirestore(updated);
   };
 
   // Helper to add log entry
@@ -152,18 +204,20 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     detall: string,
     extra?: { despesa_id?: string; projecte_id?: string; comentaris?: string }
   ) => {
+    const userEmail = auth?.currentUser?.email || "secretaria@somllar.cat";
     const newEntry: LogEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       timestamp: new Date().toISOString(),
       tipus,
       titol,
       detall,
-      usuari: "secretaria@somllar.cat",
+      usuari: userEmail,
       ...extra,
     };
     setHistorial(prev => {
       const updated = [newEntry, ...prev];
       localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(updated));
+      syncHistorialToFirestore(updated);
       return updated;
     });
   };
@@ -235,10 +289,10 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     const totalPercent = Math.round(newImps.reduce((acc, curr) => acc + curr.percentatge, 0) * 100) / 100;
     const totalImport = Math.round(newImps.reduce((acc, curr) => acc + curr.import, 0) * 100) / 100;
 
-    let estat: 'pendent' | 'parcial' | 'completada' | 'excedida' = 'pendent';
-    if (totalPercent > 100) {
+    let estat: Despesa["estat"] = 'pendent';
+    if (totalPercent > 100.01) {
       estat = 'excedida';
-    } else if (Math.abs(totalPercent - 100) < 0.01) {
+    } else if (Math.abs(totalPercent - 100) <= 0.01) {
       estat = 'completada';
     } else if (totalPercent > 0) {
       estat = 'parcial';
@@ -250,9 +304,9 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       if (d.id === despesaId) {
         return {
           ...d,
-          estat,
           percentatge_total: totalPercent,
-          import_total: totalImport
+          import_total: totalImport,
+          estat
         };
       }
       return d;
@@ -272,13 +326,12 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   // Assign Partida to Account & re-evaluate despeses
   const assignPartidaToCompte = (compte: string, partidaId: string) => {
-    const existingIdx = equivalencies.findIndex(e => e.compte === compte);
+    const existing = equivalencies.find(e => e.compte === compte);
     let updatedEqs: Equivalencia[];
-    if (existingIdx !== -1) {
-      updatedEqs = [...equivalencies];
-      updatedEqs[existingIdx] = { ...updatedEqs[existingIdx], partida_id: partidaId };
+    if (existing) {
+      updatedEqs = equivalencies.map(e => e.compte === compte ? { ...e, partida_id: partidaId } : e);
     } else {
-      updatedEqs = [...equivalencies, { compte, descripcio: "", partida_id: partidaId }];
+      updatedEqs = [...equivalencies, { compte, partida_id: partidaId, descripcio: "Assignat manualment" }];
     }
     persistEquivalencies(updatedEqs);
 
@@ -393,7 +446,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Justificacions_Som_Llar_${activeExercici}_${new Date().toISOString().split("T")[0]}.xlsx`;
+    a.download = `Justificacions_SomLlar_${activeExercici}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -405,6 +458,8 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     localStorage.removeItem(STORAGE_KEYS.IMPUTACIONS);
     setDespeses([]);
     setImputacions([]);
+    syncDespesesToFirestore(activeExercici, []);
+    syncImputacionsToFirestore(activeExercici, []);
     recordLog("nota_manual", "Dades de Despeses Reiniciades", "S'han buidat les despeses i les imputacions carregades.");
   };
 
@@ -415,6 +470,8 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(seedData.partidas));
     localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(seedData.equivalencies));
     localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(seedData.projectes));
+    syncProjectesToFirestore(seedData.projectes as Projecte[]);
+    syncEquivalenciesToFirestore(seedData.equivalencies as Equivalencia[]);
     recordLog("nota_manual", "Catàleg Restaurat", "S'han restaurat les 49 partides, 323 equivalències i 44 projectes originals.");
   };
 
@@ -428,6 +485,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         equivalencies,
         historial,
         isLoading,
+        isCloudSynced,
         activeExercici,
         setActiveExercici,
         importA3File,
