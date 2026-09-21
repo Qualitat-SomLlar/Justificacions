@@ -1,7 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
-import { Despesa, Imputacio, Projecte, Partida, Equivalencia, ImportSummary } from "./types";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { Despesa, Imputacio, Projecte, Partida, Equivalencia, ImportSummary, LogEntry } from "./types";
 import { parseA3Excel } from "./parser";
 import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
@@ -12,13 +12,15 @@ interface JustificacionsContextType {
   projectes: Projecte[];
   partides: Partida[];
   equivalencies: Equivalencia[];
+  historial: LogEntry[];
   isLoading: boolean;
   activeExercici: number;
   setActiveExercici: (y: number) => void;
   importA3File: (fileBuffer: ArrayBuffer) => Promise<ImportSummary>;
   saveImputacions: (
     despesaId: string,
-    allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[]
+    allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[],
+    comentariGlobal?: string
   ) => void;
   addProjecte: (p: Omit<Projecte, "id">) => void;
   updateProjecte: (p: Projecte) => void;
@@ -27,6 +29,9 @@ interface JustificacionsContextType {
   updateEquivalencia: (eq: Equivalencia) => void;
   deleteEquivalencia: (compte: string) => void;
   assignPartidaToCompte: (compte: string, partidaId: string) => void;
+  addManualLog: (titol: string, detall: string, comentaris?: string) => void;
+  updateLogComentari: (logId: string, comentari: string) => void;
+  deleteLogEntry: (logId: string) => void;
   exportToExcel: () => void;
   clearAllData: () => void;
   reloadSeedData: () => void;
@@ -38,6 +43,7 @@ const STORAGE_KEYS = {
   PROJECTES: "somllar_projectes_v1",
   PARTIDES: "somllar_partides_v1",
   EQUIVALENCIES: "somllar_equivalencies_v1",
+  HISTORIAL: "somllar_historial_v1",
 };
 
 const JustificacionsContext = createContext<JustificacionsContextType | null>(null);
@@ -48,6 +54,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   const [projectes, setProjectes] = useState<Projecte[]>([]);
   const [partides, setPartides] = useState<Partida[]>([]);
   const [equivalencies, setEquivalencies] = useState<Equivalencia[]>([]);
+  const [historial, setHistorial] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [activeExercici, setActiveExercici] = useState<number>(2026);
 
@@ -87,6 +94,24 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       if (storedImputacions) {
         setImputacions(JSON.parse(storedImputacions));
       }
+
+      const storedHistorial = localStorage.getItem(STORAGE_KEYS.HISTORIAL);
+      if (storedHistorial) {
+        setHistorial(JSON.parse(storedHistorial));
+      } else {
+        // Initial welcome log
+        const initialLog: LogEntry = {
+          id: `log_init`,
+          timestamp: new Date().toISOString(),
+          tipus: "nota_manual",
+          titol: "Sistema Inicialitzat",
+          detall: "Catàleg carregat amb 49 partides directes, 323 equivalències de comptes i 44 projectes actius.",
+          usuari: "Sistema Som Llar",
+          comentaris: "Benvinguts al sistema de gestió i control de justificacions de Som Llar."
+        };
+        setHistorial([initialLog]);
+        localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify([initialLog]));
+      }
     } catch (e) {
       console.error("Error al carregar de localStorage:", e);
     } finally {
@@ -115,6 +140,34 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(updated));
   };
 
+  const persistHistorial = (updated: LogEntry[]) => {
+    setHistorial(updated);
+    localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(updated));
+  };
+
+  // Helper to add log entry
+  const recordLog = (
+    tipus: LogEntry["tipus"],
+    titol: string,
+    detall: string,
+    extra?: { despesa_id?: string; projecte_id?: string; comentaris?: string }
+  ) => {
+    const newEntry: LogEntry = {
+      id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      timestamp: new Date().toISOString(),
+      tipus,
+      titol,
+      detall,
+      usuari: "secretaria@somllar.cat",
+      ...extra,
+    };
+    setHistorial(prev => {
+      const updated = [newEntry, ...prev];
+      localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   // Import A3 File
   const importA3File = async (fileBuffer: ArrayBuffer): Promise<ImportSummary> => {
     const summary = parseA3Excel(fileBuffer, equivalencies, despeses);
@@ -127,7 +180,6 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     for (const d of summary.despeses) {
       if (existingMap.has(d.id)) {
         const prev = existingMap.get(d.id)!;
-        // Keep existing imputations and state, but update amounts and mark if modified in A3
         updatedList.push({
           ...d,
           estat: prev.estat,
@@ -141,24 +193,30 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       }
     }
 
-    // Keep any existing despeses that were not present in this specific upload
     for (const remaining of existingMap.values()) {
       updatedList.push(remaining);
     }
 
     persistDespeses(updatedList);
+
+    // Record log
+    recordLog(
+      "importacio_a3",
+      `Volcat d'Excel d'A3 Processat`,
+      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} mantingudes, ${summary.facturesModificades} modificacions detectades a l'A3 i ${summary.senseCorrespondencia} pendents de correspondència.`
+    );
+
     return summary;
   };
 
   // Save / Update Imputacions for a single Despesa
   const saveImputacions = (
     despesaId: string,
-    allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[]
+    allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[],
+    comentariGlobal?: string
   ) => {
-    // 1. Remove old imputations for this despesa
     const otherImputacions = imputacions.filter(imp => imp.despesa_id !== despesaId);
 
-    // 2. Add new valid allocations
     const newImps: Imputacio[] = allocations
       .filter(a => a.percentatge > 0 || a.import > 0)
       .map(a => ({
@@ -174,7 +232,6 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     const updatedImputacions = [...otherImputacions, ...newImps];
     persistImputacions(updatedImputacions);
 
-    // 3. Update Despesa summary status
     const totalPercent = Math.round(newImps.reduce((acc, curr) => acc + curr.percentatge, 0) * 100) / 100;
     const totalImport = Math.round(newImps.reduce((acc, curr) => acc + curr.import, 0) * 100) / 100;
 
@@ -186,6 +243,8 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     } else if (totalPercent > 0) {
       estat = 'parcial';
     }
+
+    const currentDespesa = despeses.find(d => d.id === despesaId);
 
     const updatedDespeses = despeses.map(d => {
       if (d.id === despesaId) {
@@ -200,6 +259,15 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     });
 
     persistDespeses(updatedDespeses);
+
+    // Record log
+    const allocSummary = newImps.map(i => `${i.projecte_id} (${i.percentatge}%, ${i.import}€)`).join(", ") || "Sense projectes (0%)";
+    recordLog(
+      "imputacio",
+      `Imputació de Factura: ${currentDespesa?.ndoc_a3 || despesaId}`,
+      `Proveïdor: ${currentDespesa?.proveidor || "-"} | Total factura: ${currentDespesa?.total_factura.toFixed(2)}€ | Repartiment: ${allocSummary}`,
+      { despesa_id: despesaId, comentaris: comentariGlobal }
+    );
   };
 
   // Assign Partida to Account & re-evaluate despeses
@@ -214,7 +282,6 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     }
     persistEquivalencies(updatedEqs);
 
-    // Update all despeses that have this account
     const updatedDespeses = despeses.map(d => {
       if (d.compte_despesa === compte || (d.partida_id === "SENSE_CORRESPONDENCIA" && d.compte_despesa.includes(compte))) {
         return {
@@ -225,6 +292,12 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       return d;
     });
     persistDespeses(updatedDespeses);
+
+    recordLog(
+      "equivalencia",
+      `Mapeig de Compte: ${compte}`,
+      `Assignat automàticament a la partida ${partidaId} per a totes les factures associades.`
+    );
   };
 
   // Projects CRUD
@@ -232,32 +305,85 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     const id = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
     const updated = [...projectes, { ...p, id, codi: id, actiu: true }];
     persistProjectes(updated);
+
+    recordLog(
+      "projecte",
+      `Nou Projecte Creat: ${id}`,
+      `Finançador: ${p.financador || "-"} | Àrea: ${p.area || "-"} | Període: ${p.dates_text}`,
+      { projecte_id: id }
+    );
   };
 
   const updateProjecte = (p: Projecte) => {
     const updated = projectes.map(item => item.id === p.id ? p : item);
     persistProjectes(updated);
+
+    recordLog(
+      "projecte",
+      `Projecte Actualitzat: ${p.codi}`,
+      `Finançador: ${p.financador || "-"} | Àrea: ${p.area || "-"} | Dates: ${p.dates_text} | Estat: ${p.actiu ? "Actiu" : "Tancat"}`,
+      { projecte_id: p.id }
+    );
   };
 
   const deleteProjecte = (id: string) => {
     const updated = projectes.map(item => item.id === id ? { ...item, actiu: false } : item);
     persistProjectes(updated);
+
+    recordLog(
+      "projecte",
+      `Projecte Desactivat: ${id}`,
+      `El projecte ha estat marcat com a tancat/inactiu.`
+    );
   };
 
   // Equivalencies CRUD
   const addEquivalencia = (eq: Equivalencia) => {
     const updated = [...equivalencies, eq];
     persistEquivalencies(updated);
+
+    recordLog(
+      "equivalencia",
+      `Equivalència Creada: ${eq.compte}`,
+      `Compte ${eq.compte} (${eq.descripcio || "-"}) vinculat a la partida ${eq.partida_id}`
+    );
   };
 
   const updateEquivalencia = (eq: Equivalencia) => {
     const updated = equivalencies.map(e => e.compte === eq.compte ? eq : e);
     persistEquivalencies(updated);
+
+    recordLog(
+      "equivalencia",
+      `Equivalència Modificada: ${eq.compte}`,
+      `Compte ${eq.compte} reassignat a la partida ${eq.partida_id}`
+    );
   };
 
   const deleteEquivalencia = (compte: string) => {
     const updated = equivalencies.filter(e => e.compte !== compte);
     persistEquivalencies(updated);
+
+    recordLog(
+      "equivalencia",
+      `Equivalència Eliminada: ${compte}`,
+      `S'ha eliminat la correspondència per al compte ${compte}`
+    );
+  };
+
+  // Manual Log Entry & Comment update
+  const addManualLog = (titol: string, detall: string, comentaris?: string) => {
+    recordLog("nota_manual", titol, detall, { comentaris });
+  };
+
+  const updateLogComentari = (logId: string, comentari: string) => {
+    const updated = historial.map(item => item.id === logId ? { ...item, comentaris: comentari } : item);
+    persistHistorial(updated);
+  };
+
+  const deleteLogEntry = (logId: string) => {
+    const updated = historial.filter(item => item.id !== logId);
+    persistHistorial(updated);
   };
 
   // Export to Excel
@@ -279,6 +405,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     localStorage.removeItem(STORAGE_KEYS.IMPUTACIONS);
     setDespeses([]);
     setImputacions([]);
+    recordLog("nota_manual", "Dades de Despeses Reiniciades", "S'han buidat les despeses i les imputacions carregades.");
   };
 
   const reloadSeedData = () => {
@@ -288,6 +415,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(seedData.partidas));
     localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(seedData.equivalencies));
     localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(seedData.projectes));
+    recordLog("nota_manual", "Catàleg Restaurat", "S'han restaurat les 49 partides, 323 equivalències i 44 projectes originals.");
   };
 
   return (
@@ -298,6 +426,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         projectes,
         partides,
         equivalencies,
+        historial,
         isLoading,
         activeExercici,
         setActiveExercici,
@@ -310,6 +439,9 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         updateEquivalencia,
         deleteEquivalencia,
         assignPartidaToCompte,
+        addManualLog,
+        updateLogComentari,
+        deleteLogEntry,
         exportToExcel,
         clearAllData,
         reloadSeedData,

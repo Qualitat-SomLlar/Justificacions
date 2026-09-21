@@ -13,7 +13,8 @@ import {
   Download, 
   AlertTriangle,
   Building2,
-  Calendar
+  Calendar,
+  History
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import ImportModal from "./ImportModal";
@@ -38,6 +39,7 @@ export default function Navbar() {
     { href: "/matriu", label: "Matriu Justificativa", icon: Table2 },
     { href: "/projectes", label: "Projectes", icon: Briefcase },
     { href: "/equivalencies", label: "Equivalències A3", icon: ArrowLeftRight },
+    { href: "/historial", label: "Historial de Canvis", icon: History },
   ];
 
   return (

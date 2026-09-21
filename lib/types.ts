@@ -71,3 +71,15 @@ export interface ImportSummary {
   senseCorrespondencia: number;
   despeses: Despesa[];
 }
+
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  tipus: 'imputacio' | 'importacio_a3' | 'projecte' | 'equivalencia' | 'nota_manual';
+  titol: string;
+  detall: string;
+  usuari?: string;
+  despesa_id?: string;
+  projecte_id?: string;
+  comentaris?: string;
+}

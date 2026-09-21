@@ -21,6 +21,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
   const { projectes, imputacions, saveImputacions } = useJustificacions();
 
   const [allocations, setAllocations] = useState<AllocationRow[]>([]);
+  const [comentariGlobal, setComentariGlobal] = useState("");
 
   // Preload existing allocations for this despesa
   useEffect(() => {
@@ -125,7 +126,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
   const isUnder100 = totalImputatPercent < 99.99;
 
   const handleSave = () => {
-    saveImputacions(despesa.id, allocations);
+    saveImputacions(despesa.id, allocations, comentariGlobal);
     onClose();
   };
 
@@ -341,6 +342,21 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Audit Note / Justification rationale */}
+          <div className="pt-2 border-t border-slate-200">
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+              <span>Comentari o Nota d'Auditoria per a l'Historial (Opcional):</span>
+              <span className="text-[11px] font-normal text-slate-400">Es registrarà a l'Historial de Canvis</span>
+            </label>
+            <textarea
+              rows={2}
+              value={comentariGlobal}
+              onChange={(e) => setComentariGlobal(e.target.value)}
+              placeholder="Ex: Criteri pactat amb la intervenció municipal, factura compartida al 50% entre APROP22 i fons propis..."
+              className="w-full text-xs sm:text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white placeholder:text-slate-400"
+            />
           </div>
         </div>
 
