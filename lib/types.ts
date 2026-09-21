@@ -55,6 +55,7 @@ export interface Partida {
   id: string;
   codi: string;
   nom: string;
+  activa?: boolean;
 }
 
 export interface Equivalencia {
@@ -75,7 +76,7 @@ export interface ImportSummary {
 export interface LogEntry {
   id: string;
   timestamp: string;
-  tipus: 'imputacio' | 'importacio_a3' | 'projecte' | 'equivalencia' | 'nota_manual';
+  tipus: 'imputacio' | 'importacio_a3' | 'projecte' | 'equivalencia' | 'partida' | 'nota_manual';
   titol: string;
   detall: string;
   usuari?: string;

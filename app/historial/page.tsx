@@ -22,7 +22,8 @@ import {
   Tag, 
   Info,
   ArrowUpDown,
-  MessageCircle
+  MessageCircle,
+  FolderTree
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { LogEntry } from "@/lib/types";
@@ -79,6 +80,7 @@ export default function HistorialPage() {
       imputacions: historial.filter((h) => h.tipus === "imputacio").length,
       volcats: historial.filter((h) => h.tipus === "importacio_a3").length,
       projectes: historial.filter((h) => h.tipus === "projecte").length,
+      partides: historial.filter((h) => h.tipus === "partida").length,
       equivalencies: historial.filter((h) => h.tipus === "equivalencia").length,
       notes: historial.filter((h) => h.tipus === "nota_manual").length,
     };
@@ -135,6 +137,14 @@ export default function HistorialPage() {
           bg: "bg-purple-50",
           text: "text-purple-700",
           border: "border-purple-200",
+        };
+      case "partida":
+        return {
+          label: "Partida",
+          icon: FolderTree,
+          bg: "bg-teal-50",
+          text: "text-teal-700",
+          border: "border-teal-200",
         };
       case "equivalencia":
         return {
@@ -202,7 +212,7 @@ export default function HistorialPage() {
       </div>
 
       {/* Summary Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <div 
           onClick={() => setFilterType("all")}
           className={`cursor-pointer p-3 rounded-xl border transition-all ${
@@ -253,6 +263,19 @@ export default function HistorialPage() {
             <Briefcase className="w-4 h-4 text-purple-600" />
           </div>
           <p className="text-xl font-bold text-purple-700 mt-1">{stats.projectes}</p>
+        </div>
+
+        <div 
+          onClick={() => setFilterType("partida")}
+          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+            filterType === "partida" ? "bg-teal-50 border-teal-300 ring-2 ring-teal-500/20" : "bg-white border-slate-200 hover:border-slate-300"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500">Partides</span>
+            <FolderTree className="w-4 h-4 text-teal-600" />
+          </div>
+          <p className="text-xl font-bold text-teal-700 mt-1">{stats.partides}</p>
         </div>
 
         <div 

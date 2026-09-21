@@ -10,6 +10,7 @@ import {
   fetchRemoteData,
   syncProjectesToFirestore,
   syncEquivalenciesToFirestore,
+  syncPartidesToFirestore,
   syncDespesesToFirestore,
   syncImputacionsToFirestore,
   syncHistorialToFirestore
@@ -35,6 +36,9 @@ interface JustificacionsContextType {
   addProjecte: (p: Omit<Projecte, "id">) => void;
   updateProjecte: (p: Projecte) => void;
   deleteProjecte: (id: string) => void;
+  addPartida: (p: { codi: string; nom: string }, comentaris?: string) => void;
+  updatePartida: (p: Partida, comentaris?: string) => void;
+  toggleBaixaPartida: (id: string, comentaris?: string) => void;
   addEquivalencia: (eq: Equivalencia) => void;
   updateEquivalencia: (eq: Equivalencia) => void;
   deleteEquivalencia: (compte: string) => void;
@@ -146,6 +150,13 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
           syncEquivalenciesToFirestore(seedData.equivalencies as Equivalencia[]);
         }
 
+        if (remote.partides && remote.partides.length > 0) {
+          setPartides(remote.partides);
+          localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(remote.partides));
+        } else {
+          syncPartidesToFirestore(seedData.partidas as Partida[]);
+        }
+
         if (remote.despeses && remote.despeses.length > 0) {
           setDespeses(remote.despeses);
           localStorage.setItem(STORAGE_KEYS.DESPESES, JSON.stringify(remote.despeses));
@@ -183,6 +194,12 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     setProjectes(updated);
     localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(updated));
     syncProjectesToFirestore(updated);
+  };
+
+  const persistPartides = (updated: Partida[]) => {
+    setPartides(updated);
+    localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(updated));
+    syncPartidesToFirestore(updated);
   };
 
   const persistEquivalencies = (updated: Equivalencia[]) => {
@@ -390,6 +407,65 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     );
   };
 
+  // Partides CRUD
+  const addPartida = (p: { codi: string; nom: string }, comentaris?: string) => {
+    const rawCode = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
+    const codi = rawCode.startsWith("DD_") ? rawCode : `DD_${rawCode}`;
+    const id = codi;
+
+    if (partides.some(item => item.id === id)) {
+      alert(`La partida amb codi ${codi} ja existeix.`);
+      return;
+    }
+
+    const novaPartida: Partida = {
+      id,
+      codi,
+      nom: p.nom.trim() || codi,
+      activa: true
+    };
+
+    const updated = [...partides, novaPartida];
+    persistPartides(updated);
+
+    recordLog(
+      "partida",
+      `Nova Partida Creada: ${codi}`,
+      `Nom: ${novaPartida.nom} | Estat: Activa`,
+      { comentaris }
+    );
+  };
+
+  const updatePartida = (p: Partida, comentaris?: string) => {
+    const updated = partides.map(item => item.id === p.id ? { ...item, nom: p.nom.trim(), activa: p.activa !== false } : item);
+    persistPartides(updated);
+
+    recordLog(
+      "partida",
+      `Partida Modificada: ${p.codi}`,
+      `Nom: ${p.nom.trim()} | Estat: ${p.activa !== false ? "Activa" : "Donada de Baixa"}`,
+      { comentaris }
+    );
+  };
+
+  const toggleBaixaPartida = (id: string, comentaris?: string) => {
+    const target = partides.find(item => item.id === id);
+    if (!target) return;
+
+    const novaActiva = target.activa === false ? true : false;
+    const estatText = novaActiva ? "Reactivada / Donada d'Alta" : "Donada de Baixa (Arxivada)";
+
+    const updated = partides.map(item => item.id === id ? { ...item, activa: novaActiva } : item);
+    persistPartides(updated);
+
+    recordLog(
+      "partida",
+      `Partida ${novaActiva ? "Reactivada" : "Donada de Baixa"}: ${target.codi}`,
+      `La partida ha passat a estar: ${estatText}. Totes les imputacions històriques es mantenen intactes.`,
+      { comentaris }
+    );
+  };
+
   // Equivalencies CRUD
   const addEquivalencia = (eq: Equivalencia) => {
     const updated = [...equivalencies, eq];
@@ -472,6 +548,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(seedData.projectes));
     syncProjectesToFirestore(seedData.projectes as Projecte[]);
     syncEquivalenciesToFirestore(seedData.equivalencies as Equivalencia[]);
+    syncPartidesToFirestore(seedData.partidas as Partida[]);
     recordLog("nota_manual", "Catàleg Restaurat", "S'han restaurat les 49 partides, 323 equivalències i 44 projectes originals.");
   };
 
@@ -493,6 +570,9 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         addProjecte,
         updateProjecte,
         deleteProjecte,
+        addPartida,
+        updatePartida,
+        toggleBaixaPartida,
         addEquivalencia,
         updateEquivalencia,
         deleteEquivalencia,

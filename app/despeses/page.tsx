@@ -348,7 +348,7 @@ function DespesesContent() {
               <option value="totes">Totes les Partides ({partides.length})</option>
               {partides.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.codi}
+                  {p.codi} {p.activa === false ? "⚠️ (Baixa)" : ""}
                 </option>
               ))}
               <option value="SENSE_CORRESPONDENCIA">⚠️ Sense Correspondència</option>

@@ -16,7 +16,8 @@ import {
   Calendar,
   History,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  FolderTree
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
@@ -42,6 +43,7 @@ export default function Navbar() {
     },
     { href: "/matriu", label: "Matriu Justificativa", icon: Table2 },
     { href: "/projectes", label: "Projectes", icon: Briefcase },
+    { href: "/partides", label: "Partides", icon: FolderTree },
     { href: "/equivalencies", label: "Equivalències A3", icon: ArrowLeftRight },
     { href: "/historial", label: "Historial de Canvis", icon: History },
   ];

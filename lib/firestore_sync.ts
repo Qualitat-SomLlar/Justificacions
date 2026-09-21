@@ -53,6 +53,15 @@ export async function syncEquivalenciesToFirestore(equivalencies: Equivalencia[]
   }
 }
 
+export async function syncPartidesToFirestore(partides: Partida[]) {
+  if (!db) return;
+  try {
+    await setDoc(doc(db, COLLECTION_ROOT, "partides"), { items: partides, updatedAt: new Date().toISOString() });
+  } catch (e) {
+    console.warn("Firestore syncPartides error:", e);
+  }
+}
+
 export async function syncDespesesToFirestore(exercici: number, despeses: Despesa[]) {
   if (!db) return;
   try {

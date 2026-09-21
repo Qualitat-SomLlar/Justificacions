@@ -180,7 +180,7 @@ export default function EquivalenciesPage() {
                   >
                     {partides.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.codi}
+                        {p.codi} {p.activa === false ? "⚠️ (Baixa)" : ""}
                       </option>
                     ))}
                   </select>
@@ -351,7 +351,7 @@ export default function EquivalenciesPage() {
                 >
                   {partides.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.codi}
+                      {p.codi} {p.activa === false ? "⚠️ (Baixa)" : ""}
                     </option>
                   ))}
                 </select>
