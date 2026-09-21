@@ -1,0 +1,605 @@
+function main(workbook: ExcelScript.Workbook) {
+  // ==========================================
+  // CONFIGURACIÓN GLOBAL
+  // ==========================================
+  const HOJA_ORIGEN: string = "Export";           // Pestanya de l'export brut
+  const HOJA_PANEL: string = "Resum Panel";       // Pestanya dedicada per al quadre de comandament
+  const ORDEN_ASCENDENTE: boolean = true;         
+  // ==========================================
+
+  // 1. CARGAR TABLAS DE CONTROL (Equivalencies1 y Equivalencies2)
+  let tableCuentas: ExcelScript.Table = workbook.getTable("Equivalencies1");
+  let tableCabeceras: ExcelScript.Table = workbook.getTable("Equivalencies2");
+  if (!tableCuentas || !tableCabeceras) {
+    console.log("ERROR: No s'han trobat les taules 'Equivalencies1' o 'Equivalencies2'.");
+    return;
+  }
+  
+  let t1Headers: string[] = tableCuentas.getHeaderRowRange().getValues()[0].map(h => String(h).trim());
+  let t1Values: (string | number | boolean)[][] = tableCuentas.getRangeBetweenHeaderAndTotal()?.getValues() || [];
+  let t2Headers: string[] = tableCabeceras.getHeaderRowRange().getValues()[0].map(h => String(h).trim());
+  let t2Values: (string | number | boolean)[][] = tableCabeceras.getRangeBetweenHeaderAndTotal()?.getValues() || [];
+
+  const cleanStr = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
+
+  const esColumnaTexto = (normH: string): boolean => {
+    if (normH.includes("import") || normH.includes("base") || normH.includes("iva") || normH.includes("irpf") || normH.includes("total") || normH.includes("desquadre")) {
+      return false; 
+    }
+    return normH.includes("doc") || normH.includes("fac") || normH.includes("num") || normH.includes("cif") || normH.includes("nif") || normH.includes("compte") || normH.includes("codi") || normH.includes("proveidor");
+  };
+
+  let colCompteIdx: number = t1Headers.findIndex(h => cleanStr(h).includes("comptedespesa") && !cleanStr(h).includes("descripcio"));
+  let colDescMappingIdx: number = t1Headers.findIndex(h => cleanStr(h).includes("descripciocomptedespesa"));
+  let colDestiIdx: number = t1Headers.findIndex(h => cleanStr(h).includes("fulladesti"));
+  let colSortCriteriaIdx: number = t1Headers.findIndex(h => cleanStr(h).includes("ordenarperlacolumna"));
+
+  let colExportIdx: number = t2Headers.findIndex(h => cleanStr(h) === "export");
+  let colJustifIdx: number = t2Headers.findIndex(h => cleanStr(h).startsWith("justificacions"));
+
+  let diccionariComptes: { [key: string]: string } = {};
+  let diccionariDescripcions: { [key: string]: string } = {};
+  let diccionariSortSubpestanyes: { [key: string]: string } = {}; 
+
+  for (let i = 0; i < t1Values.length; i++) {
+    let row = t1Values[i];
+    let codi = String(row[colCompteIdx]).trim();
+    let desc = String(row[colDescMappingIdx]).trim().toLowerCase();
+    let desti = String(row[colDestiIdx]).trim();
+    let sortCriteria = String(row[colSortCriteriaIdx]).trim();
+
+    if (codi && desti) diccionariComptes[codi] = desti;
+    if (desc && desti) diccionariDescripcions[desc] = desti;
+    if (desti && sortCriteria) diccionariSortSubpestanyes[desti] = sortCriteria;
+  }
+
+  let masterTargetHeadersOrder: string[] = [];
+  let reverseCabecerasNormalized: { [key: string]: string } = {};
+
+  for (let j = 0; j < t2Values.length; j++) {
+    let row = t2Values[j];
+    let expHead = String(row[colExportIdx]).trim();
+    let destHead = String(row[colJustifIdx]).trim();
+    
+    if (!destHead || destHead === "" || destHead.toLowerCase().includes("no es") || destHead.toLowerCase().includes("ignorar")) {
+      continue;
+    }
+
+    if (expHead && destHead) {
+      let normDest = cleanStr(destHead);
+      let normExp = cleanStr(expHead);
+      reverseCabecerasNormalized[normDest] = normExp;
+      if (masterTargetHeadersOrder.indexOf(destHead) === -1) {
+        masterTargetHeadersOrder.push(destHead);
+      }
+    }
+  }
+
+  // 2. LEER HOJA EXPORT (LOTE EN BRUTO ENTRANTE)
+  let sourceSheet: ExcelScript.Worksheet = workbook.getWorksheet(HOJA_ORIGEN) || workbook.getActiveWorksheet();
+  let usedRange: ExcelScript.Range = sourceSheet.getUsedRange();
+  if (!usedRange) {
+    console.log("La fulla d'origen 'Export' està buida.");
+    return;
+  }
+  let values: (string | number | boolean)[][] = usedRange.getValues();
+  let sourceHeaders: string[] = values[0].map(h => String(h).trim());
+
+  // INYECCIÓN DE COLUMNAS DE CONTROL DE AUDITORÍA
+  let colAuditoriaIdx: number = sourceHeaders.indexOf("Fulla Destí");
+  if (colAuditoriaIdx === -1) {
+    colAuditoriaIdx = sourceHeaders.length;
+    sourceHeaders.push("Fulla Destí"); 
+    sourceSheet.getRangeByIndexes(0, colAuditoriaIdx, 1, 1).setValues([["Fulla Destí"]]);
+  }
+
+  let colCompartidaIdx: number = sourceHeaders.indexOf("Compartida");
+  if (colCompartidaIdx === -1) {
+    colCompartidaIdx = sourceHeaders.length;
+    sourceHeaders.push("Compartida"); 
+    sourceSheet.getRangeByIndexes(0, colCompartidaIdx, 1, 1).setValues([["Compartida"]]);
+  }
+
+  let exportHeaderIndexMap: { [key: string]: number } = {};
+  for (let c = 0; c < sourceHeaders.length; c++) {
+    exportHeaderIndexMap[cleanStr(sourceHeaders[c])] = c;
+  }
+
+  let colCodiIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("comptedespesa") && !cleanStr(h).includes("descripcio"));
+  if (colCodiIdx === -1) colCodiIdx = sourceHeaders.indexOf("Compte despesa");
+
+  let colDescIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("descripciocomptedespesa") || (cleanStr(h).includes("descripcio") && cleanStr(h).includes("compte")));
+  if (colDescIdx === -1) colDescIdx = sourceHeaders.indexOf("Descripció compte despesa");
+
+  let colPisIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("pis"));
+  if (colPisIdx === -1) colPisIdx = sourceHeaders.indexOf("Pis");
+
+  let colProveidorIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("proveidor"));
+  let colFacturaIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("factura"));
+  let colDocA3Idx = sourceHeaders.findIndex(h => cleanStr(h).includes("documenta3"));
+  let colNumApunteIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("numapunte"));
+  let colBaseIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("baseimposable"));
+  let colIvaIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("importiva"));
+  let colIrpfIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("importirpf"));
+  let colTotalLineaIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("importtotaldelinia"));
+  let colTotalDocIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("totaldocumenta3"));
+  let colDesquadreIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("desquadre"));
+  let colNifIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("nifproveidor"));
+  let colDataIdx = sourceHeaders.findIndex(h => cleanStr(h) === "data");
+  let colDataPagIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("datapagament"));
+  let colDescLiniaIdx = sourceHeaders.findIndex(h => cleanStr(h).includes("descripciolinia"));
+
+  if (colFacturaIdx === -1 || colProveidorIdx === -1) {
+    console.log("ERROR: Falten columnes crítiques per a la fusió prèvia.");
+    return;
+  }
+
+  // ==========================================
+  // 3. FASE 1: UNIFICACIÓN Y CONSOLIDACIÓN HÍBRIDA
+  // ==========================================
+  let resumenAgrupacion: { [key: string]: { [colIdx: number]: (string | number | boolean) } } = {};
+  let uniquesTracker: { [key: string]: { nifs: string[], facturas: string[], conceptos: string[] } } = {};
+  let orderOfKeys: string[] = [];
+  
+  let sheetsPerInvoice: { [id: string]: string[] } = {};
+  let claveToIdFactura: { [clave: string]: string } = {};
+
+  // CORRECCIÓN AL ERROR 1: Rastreador global de importes de cabecera reales por factura física
+  let maxTotalDocMap: { [idFactura: string]: number } = {};
+
+  const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+
+  for (let k = 1; k < values.length; k++) {
+    let row = values[k];
+    let factura = String(row[colFacturaIdx]).trim();
+
+    let rowCodi = colCodiIdx !== -1 ? String(row[colCodiIdx]).trim() : "";
+    let rowDesc = colDescIdx !== -1 ? String(row[colDescIdx]).trim().toLowerCase() : "";
+    let tSheet = "SENSE_CORRESPONDENCIA";
+
+    if (rowCodi && diccionariComptes[rowCodi]) {
+      tSheet = diccionariComptes[rowCodi];
+    } else if (rowDesc && diccionariDescripcions[rowDesc]) {
+      tSheet = diccionariDescripcions[rowDesc];
+    } else if (colDescIdx !== -1 && String(row[colDescIdx]).trim().startsWith("DD_")) {
+      tSheet = String(row[colDescIdx]).trim();
+    }
+
+    let clave: string;
+    let docA3 = row[colDocA3Idx] !== -1 && row[colDocA3Idx] ? String(row[colDocA3Idx]).trim() : String(row[colNumApunteIdx]).trim();
+    let proveedor = String(row[colProveidorIdx]).trim();
+    let pNorm = norm(proveedor);
+    let isIkea = (pNorm === "IKEA IBERICA, SA" || pNorm === "IKEA IBERICA, SA.");
+    let idFactura = isIkea ? `${docA3}||${factura}` : docA3;
+
+    if (!factura || factura === "" || factura === "0") {
+      clave = `⚠️_SENSE_FRA_${k}`;
+    } else {
+      clave = isIkea ? `${docA3}||${factura}||${tSheet}` : `${docA3}||${tSheet}`;
+    }
+
+    claveToIdFactura[clave] = idFactura;
+
+    // Almacenar el total real de la cabecera si viene informado en esta línea
+    let currentTotalDoc = colTotalDocIdx !== -1 ? (parseFloat(String(row[colTotalDocIdx])) || 0) : 0;
+    if (currentTotalDoc > 0) {
+      maxTotalDocMap[idFactura] = currentTotalDoc;
+    }
+
+    if (factura && factura !== "0") {
+      if (!sheetsPerInvoice[idFactura]) { sheetsPerInvoice[idFactura] = []; }
+      if (sheetsPerInvoice[idFactura].indexOf(tSheet) === -1) { sheetsPerInvoice[idFactura].push(tSheet); }
+    }
+
+    if (!resumenAgrupacion[clave]) {
+      orderOfKeys.push(clave);
+      resumenAgrupacion[clave] = {};
+      for (let c = 0; c < sourceHeaders.length; c++) { resumenAgrupacion[clave][c] = row[c]; }
+      
+      if (factura && factura !== "0") {
+        if (colBaseIdx !== -1) resumenAgrupacion[clave][colBaseIdx] = 0;
+        if (colIvaIdx !== -1) resumenAgrupacion[clave][colIvaIdx] = 0;
+        if (colIrpfIdx !== -1) resumenAgrupacion[clave][colIrpfIdx] = 0; 
+        if (colTotalLineaIdx !== -1) resumenAgrupacion[clave][colTotalLineaIdx] = 0;
+        if (colDesquadreIdx !== -1) resumenAgrupacion[clave][colDesquadreIdx] = 0;
+      }
+      uniquesTracker[clave] = { nifs: [], facturas: [], conceptos: [] };
+    }
+
+    let r = resumenAgrupacion[clave];
+    let t = uniquesTracker[clave];
+    let nif = colNifIdx !== -1 ? String(row[colNifIdx]).trim() : "";
+    if (nif && t.nifs.indexOf(nif) === -1) t.nifs.push(nif);
+    if (factura && t.facturas.indexOf(factura) === -1) t.facturas.push(factura);
+    let concepto = colDescLiniaIdx !== -1 ? String(row[colDescLiniaIdx]).trim() : "";
+    if (concepto && t.conceptos.indexOf(concepto) === -1) t.conceptos.push(concepto);
+
+    if (factura && factura !== "0") {
+      if (colBaseIdx !== -1) r[colBaseIdx] = (parseFloat(String(r[colBaseIdx])) || 0) + (parseFloat(String(row[colBaseIdx])) || 0);
+      if (colIvaIdx !== -1) r[colIvaIdx] = (parseFloat(String(r[colIvaIdx])) || 0) + (parseFloat(String(row[colIvaIdx])) || 0);
+      if (colIrpfIdx !== -1) r[colIrpfIdx] = (parseFloat(String(r[colIrpfIdx])) || 0) + (parseFloat(String(row[colIrpfIdx])) || 0); 
+      if (colTotalLineaIdx !== -1) r[colTotalLineaIdx] = (parseFloat(String(r[colTotalLineaIdx])) || 0) + (parseFloat(String(row[colTotalLineaIdx])) || 0);
+      if (colDesquadreIdx !== -1) r[colDesquadreIdx] = (parseFloat(String(r[colDesquadreIdx])) || 0) + (parseFloat(String(row[colDesquadreIdx])) || 0);
+    }
+  }
+
+  // FIJACIÓN ABSOLUTA ERROR 1: Homologar el Total Documento real en todas las claves resultantes
+  for (let key in resumenAgrupacion) {
+    let idFact = claveToIdFactura[key];
+    if (idFact && maxTotalDocMap[idFact] !== undefined && colTotalDocIdx !== -1) {
+      resumenAgrupacion[key][colTotalDocIdx] = maxTotalDocMap[idFact];
+    }
+  }
+
+  let consolidatedRows: (string | number | boolean)[][] = [];
+  for (let o = 0; o < orderOfKeys.length; o++) {
+    let key = orderOfKeys[o];
+    let r = resumenAgrupacion[key];
+    let t = uniquesTracker[key];
+    
+    if (!key.startsWith("⚠️_SENSE_FRA_")) {
+      if (colNifIdx !== -1) r[colNifIdx] = t.nifs.join(" + ");
+      if (colFacturaIdx !== -1) r[colFacturaIdx] = t.facturas.join(" + ");
+      if (colDescLiniaIdx !== -1) r[colDescLiniaIdx] = t.conceptos.join(" + ");
+    }
+    
+    let finalizedRow: (string | number | boolean)[] = [];
+    for (let c = 0; c < sourceHeaders.length; c++) { finalizedRow.push(r[c]); }
+    consolidatedRows.push(finalizedRow);
+  }
+
+  sourceSheet.getRangeByIndexes(1, 0, Math.max(values.length, 5000), sourceHeaders.length + 5).clear(ExcelScript.ClearApplyTo.all);
+  if (consolidatedRows.length > 0) {
+    for (let c = 0; c < sourceHeaders.length; c++) {
+      if (esColumnaTexto(cleanStr(sourceHeaders[c]))) {
+        sourceSheet.getRangeByIndexes(1, c, consolidatedRows.length, 1).setNumberFormatLocal("@");
+      }
+    }
+    sourceSheet.getRangeByIndexes(1, 0, consolidatedRows.length, sourceHeaders.length).setValues(consolidatedRows);
+    if (colDataIdx !== -1) sourceSheet.getRangeByIndexes(1, colDataIdx, consolidatedRows.length, 1).setNumberFormatLocal("dd/mm/aaaa");
+    if (colDataPagIdx !== -1) sourceSheet.getRangeByIndexes(1, colDataPagIdx, consolidatedRows.length, 1).setNumberFormatLocal("dd/mm/aaaa");
+  }
+
+  let updatedValues: (string | number | boolean)[][] = [sourceHeaders];
+  for (let cr of consolidatedRows) { updatedValues.push(cr); }
+  values = updatedValues;
+
+  // ==========================================
+  // 6. FASE 2: DISTRIBUCIÓN ACUMULATIVA UNIFICADA
+  // ==========================================
+  let rowsBySheet: { [key: string]: (string | number | boolean)[][] } = {};
+  let filesMogudesComptador: number = 0;
+  let filesOmesesComptador: number = 0;
+  let columnaAuditoriaValors: string[][] = [];
+  let columnaCompartidaValors: string[][] = [];
+  
+  let filterValues: string[] = ["SENSE CORRESPONDÈNCIA"];
+
+  for (let k = 1; k < values.length; k++) {
+    let row = values[k];
+    let rowCodi = String(row[colCodiIdx]).trim();
+    let rowDesc = String(row[colDescIdx]).trim().toLowerCase();
+    let targetSheetName: string = "";
+
+    let docA3 = row[colDocA3Idx] !== -1 && row[colDocA3Idx] ? String(row[colDocA3Idx]).trim() : String(row[colNumApunteIdx]).trim();
+    let factura = String(row[colFacturaIdx]).trim();
+    let proveedor = String(row[colProveidorIdx]).trim();
+    let pNorm = norm(proveedor);
+    let isIkea = (pNorm === "IKEA IBERICA, SA" || pNorm === "IKEA IBERICA, SA.");
+    let idFactura = isIkea ? `${docA3}||${factura}` : docA3;
+    let valorColU = parseFloat(String(row[20])) || 0; 
+
+    let esCompartida = false;
+    if (factura && factura !== "0" && sheetsPerInvoice[idFactura] && sheetsPerInvoice[idFactura].length > 1) {
+      esCompartida = true;
+    }
+    columnaCompartidaValors.push([esCompartida ? "SI" : "NO"]);
+
+    if (rowCodi && diccionariComptes[rowCodi]) {
+      targetSheetName = diccionariComptes[rowCodi];
+    } else if (rowDesc && diccionariDescripcions[rowDesc]) {
+      targetSheetName = diccionariDescripcions[rowDesc];
+    } else if (colDescIdx !== -1 && String(row[colDescIdx]).trim().startsWith("DD_")) {
+      targetSheetName = String(row[colDescIdx]).trim();
+    }
+
+    if (targetSheetName) {
+      if (!rowsBySheet[targetSheetName]) { rowsBySheet[targetSheetName] = []; }
+      rowsBySheet[targetSheetName].push(row);
+      columnaAuditoriaValors.push([targetSheetName]); 
+      
+      if (valorColU > 1 || esCompartida) {
+        filesOmesesComptador++; 
+        if (filterValues.indexOf(targetSheetName) === -1) { filterValues.push(targetSheetName); }
+      } else {
+        filesMogudesComptador++;
+      }
+    } else {
+      columnaAuditoriaValors.push(["SENSE CORRESPONDÈNCIA"]);
+      filesOmesesComptador++;
+    }
+  }
+
+  if (columnaAuditoriaValors.length > 0) { sourceSheet.getRangeByIndexes(1, colAuditoriaIdx, columnaAuditoriaValors.length, 1).setValues(columnaAuditoriaValors); }
+  if (columnaCompartidaValors.length > 0) { sourceSheet.getRangeByIndexes(1, colCompartidaIdx, columnaCompartidaValors.length, 1).setValues(columnaCompartidaValors); }
+
+  if (consolidatedRows.length > 0) {
+    let maxIdx = Math.max(colAuditoriaIdx, colCompartidaIdx);
+    let rangeFormat = sourceSheet.getRangeByIndexes(1, 0, consolidatedRows.length, maxIdx + 1);
+    rangeFormat.getFormat().getFill().clear(); 
+    
+    const colULetter = getColumnLetter(20); 
+    const colAuditLetter = getColumnLetter(colAuditoriaIdx); 
+    const colCompLetter = getColumnLetter(colCompartidaIdx);
+
+    // Regla 1: Facturas compartidas/divididas en varias hojas (Rojo Flojo / Rosa Pastel) -> PRIORIDAD MÁXIMA
+    let cfSplit = rangeFormat.addConditionalFormat(ExcelScript.ConditionalFormatType.custom);
+    cfSplit.getCustom().getRule().setFormula(`=$${colCompLetter}2="SI"`);
+    cfSplit.getCustom().getFormat().getFill().setColor("#FADBD8");
+
+    // Regla 2: Alertas por Modificación de IVA > 1 (Azul Pastel)
+    let cfMod = rangeFormat.addConditionalFormat(ExcelScript.ConditionalFormatType.custom);
+    cfMod.getCustom().getRule().setFormula(`=$${colULetter}2>1`);
+    cfMod.getCustom().getFormat().getFill().setColor("#DDEBF7");
+
+    // Regla 3: Líneas huérfanas sin correspondencia estructural (Salmón)
+    let cfError = rangeFormat.addConditionalFormat(ExcelScript.ConditionalFormatType.custom);
+    cfError.getCustom().getRule().setFormula(`=$${colAuditLetter}2="SENSE CORRESPONDÈNCIA"`);
+    cfError.getCustom().getFormat().getFill().setColor("#FCE4D6");
+
+    // Regla 4: Procesados correctos distribuidos ordinarios (Verde Claro)
+    let cfSuccess = rangeFormat.addConditionalFormat(ExcelScript.ConditionalFormatType.custom);
+    cfSuccess.getCustom().getRule().setFormula(`=ISNUMBER(SEARCH("DD_",$${colAuditLetter}2))`);
+    cfSuccess.getCustom().getFormat().getFill().setColor("#E2EFDA");
+  }
+
+  let sheetNames: string[] = Object.keys(rowsBySheet);
+  for (let s = 0; s < sheetNames.length; s++) {
+    let sheetName: string = sheetNames[s];
+    let targetSheet: ExcelScript.Worksheet = workbook.getWorksheet(sheetName);
+    if (!targetSheet) continue;
+
+    let targetUsedRange = targetSheet.getUsedRange();
+    let startRowIdx = 7; 
+    let actualTargetHeaders: string[] = [];
+
+    if (targetUsedRange) {
+      let startRow = targetUsedRange.getRowIndex();
+      let startCol = targetUsedRange.getColumnIndex();
+      let lastColIdx = targetUsedRange.getLastColumn().getColumnIndex();
+      
+      let areaFormulas = targetUsedRange.getFormulas();
+      let areaValues = targetUsedRange.getValues();
+      
+      let lastRealDataRow = 6; 
+      let rowsToClear: number[] = [];
+
+      for (let i = 0; i < areaFormulas.length; i++) {
+        let absRow = startRow + i;
+        if (absRow >= 7) {
+          let iColT = 19 - startCol; 
+          let esSumatorio = false;
+          
+          if (iColT >= 0 && iColT < areaFormulas[i].length) {
+            if (String(areaFormulas[i][iColT]).includes("SUM")) { esSumatorio = true; }
+          }
+
+          if (esSumatorio) { rowsToClear.push(absRow); } 
+          else {
+            let tieneContenido = areaValues[i].some(v => String(v).trim() !== "");
+            if (tieneContenido) { lastRealDataRow = absRow; }
+          }
+        }
+      }
+
+      for (let r of rowsToClear) { targetSheet.getRangeByIndexes(r, 1, 1, 23).clear(ExcelScript.ClearApplyTo.all); }
+      startRowIdx = lastRealDataRow + 1;
+
+      if (lastColIdx >= 1) {
+        let headerRange = targetSheet.getRangeByIndexes(6, 1, 1, lastColIdx);
+        actualTargetHeaders = headerRange.getValues()[0].map(h => String(h).trim());
+      }
+    }
+
+    if (actualTargetHeaders.length === 0 || actualTargetHeaders.every(h => h === "")) {
+      actualTargetHeaders = masterTargetHeadersOrder;
+      targetSheet.getRangeByIndexes(6, 1, 1, actualTargetHeaders.length).setValues([actualTargetHeaders]);
+    }
+
+    let sourceRows = rowsBySheet[sheetName];
+
+    if (sheetName === "DD_ARRENDAMIENTOS Y CÁNONES") {
+      let icfGroups: { [key: string]: (string | number | boolean)[] } = {};
+      let nonIcfRows: (string | number | boolean)[][] = [];
+
+      for (let r = 0; r < sourceRows.length; r++) {
+        let row = sourceRows[r];
+        let pisVal = colPisIdx !== -1 ? String(row[colPisIdx]).trim() : "";
+        let descVal = colDescLiniaIdx !== -1 ? String(row[colDescLiniaIdx]).trim() : "";
+
+        if (descVal.toUpperCase().includes("ICF")) {
+          let groupKey = `${cleanStr(pisVal)}||${cleanStr(descVal)}`;
+          if (!icfGroups[groupKey]) {
+            icfGroups[groupKey] = [...row];
+          } else {
+            let targetRow = icfGroups[groupKey];
+            if (colBaseIdx !== -1) targetRow[colBaseIdx] = (parseFloat(String(targetRow[colBaseIdx])) || 0) + (parseFloat(String(row[colBaseIdx])) || 0);
+            if (colIvaIdx !== -1) targetRow[colIvaIdx] = (parseFloat(String(targetRow[colIvaIdx])) || 0) + (parseFloat(String(row[colIvaIdx])) || 0);
+            if (colIrpfIdx !== -1) targetRow[colIrpfIdx] = (parseFloat(String(targetRow[colIrpfIdx])) || 0) + (parseFloat(String(row[colIrpfIdx])) || 0);
+            if (colTotalLineaIdx !== -1) targetRow[colTotalLineaIdx] = (parseFloat(String(targetRow[colTotalLineaIdx])) || 0) + (parseFloat(String(row[colTotalLineaIdx])) || 0);
+            if (colTotalDocIdx !== -1) targetRow[colTotalDocIdx] = (parseFloat(String(targetRow[colTotalDocIdx])) || 0) + (parseFloat(String(row[colTotalDocIdx])) || 0);
+            if (colDesquadreIdx !== -1) targetRow[colDesquadreIdx] = (parseFloat(String(targetRow[colDesquadreIdx])) || 0) + (parseFloat(String(row[colDesquadreIdx])) || 0);
+
+            if (colCodiIdx !== -1) {
+              let currentCode = parseFloat(String(targetRow[colCodiIdx])) || 0;
+              let newCode = parseFloat(String(row[colCodiIdx])) || 0;
+              if (newCode > 0 && currentCode > 0) {
+                if (newCode < currentCode) targetRow[colCodiIdx] = row[colCodiIdx];
+              } else {
+                if (String(row[colCodiIdx]) < String(targetRow[colCodiIdx])) targetRow[colCodiIdx] = row[colCodiIdx];
+              }
+            }
+          }
+        } else {
+          nonIcfRows.push(row);
+        }
+      }
+
+      let combinedRows: (string | number | boolean)[][] = [...nonIcfRows];
+      for (let key in icfGroups) { combinedRows.push(icfGroups[key]); }
+      sourceRows = combinedRows;
+    }
+
+    for (let c = 0; c < actualTargetHeaders.length; c++) {
+      let tHeader = actualTargetHeaders[c];
+      let normTHeader = cleanStr(tHeader);
+      let targetColIdx = 1 + c; 
+      
+      if (targetColIdx > 23) { continue; } 
+
+      // INYECCIÓN SOLUCIÓN ERROR 2: Interceptar y calcular en caliente "Total Factura" = "Cost Total" - "IRPF"
+      if (normTHeader === "totalfactura") {
+        let srcCostIdx = -1;
+        let srcIrpfIdx = -1;
+        
+        // Localizar qué columnas de origen mapean con "Cost Total" e "IRPF" mediante Equivalencies2
+        for (let j = 0; j < t2Values.length; j++) {
+          let expHead = String(t2Values[j][colExportIdx]).trim();
+          let destHead = String(t2Values[j][colJustifIdx]).trim();
+          if (cleanStr(destHead) === "costtotal") {
+            let normExpHead = cleanStr(expHead);
+            if (exportHeaderIndexMap[normExpHead] !== undefined) { srcCostIdx = exportHeaderIndexMap[normExpHead]; }
+          }
+          if (cleanStr(destHead) === "irpf") {
+            let normExpHead = cleanStr(expHead);
+            if (exportHeaderIndexMap[normExpHead] !== undefined) { srcIrpfIdx = exportHeaderIndexMap[normExpHead]; }
+          }
+        }
+
+        // Fallbacks predictivos si no están explícitamente mapeados por nombre idéntico
+        if (srcCostIdx === -1) srcCostIdx = colTotalLineaIdx; 
+        if (srcIrpfIdx === -1) srcIrpfIdx = colIrpfIdx;       
+        
+        let columnCalculatedValues: (string | number | boolean)[][] = [];
+        for (let r = 0; r < sourceRows.length; r++) {
+          let costVal = srcCostIdx !== -1 ? (parseFloat(String(sourceRows[r][srcCostIdx])) || 0) : 0;
+          let irpfVal = srcIrpfIdx !== -1 ? (parseFloat(String(sourceRows[r][srcIrpfIdx])) || 0) : 0;
+          columnCalculatedValues.push([costVal - irpfVal]);
+        }
+        
+        let targetColumnRange = targetSheet.getRangeByIndexes(startRowIdx, targetColIdx, sourceRows.length, 1);
+        targetColumnRange.setValues(columnCalculatedValues);
+        continue;
+      }
+
+      let foundSrcIdx = -1;
+      for (let j = 0; j < t2Values.length; j++) {
+        let expHead = String(t2Values[j][colExportIdx]).trim();
+        let destHead = String(t2Values[j][colJustifIdx]).trim();
+        if (cleanStr(destHead) === normTHeader) {
+          let normExpHead = cleanStr(expHead);
+          if (exportHeaderIndexMap[normExpHead] !== undefined) { foundSrcIdx = exportHeaderIndexMap[normExpHead]; break; }
+          let partialIdx = sourceHeaders.findIndex(sh => cleanStr(sh).includes(normExpHead) || normExpHead.includes(cleanStr(sh)));
+          if (partialIdx !== -1) { foundSrcIdx = partialIdx; break; }
+        }
+      }
+
+      if (foundSrcIdx === -1) {
+        if (exportHeaderIndexMap[normTHeader] !== undefined) { foundSrcIdx = exportHeaderIndexMap[normTHeader]; }
+        else {
+          let fallbackFuzzy = sourceHeaders.findIndex(sh => cleanStr(sh).includes(normTHeader) || normTHeader.includes(cleanStr(sh)));
+          if (fallbackFuzzy !== -1) foundSrcIdx = fallbackFuzzy;
+        }
+      }
+
+      if (foundSrcIdx === -1) continue;
+
+      let columnDataValues: (string | number | boolean)[][] = [];
+      for (let r = 0; r < sourceRows.length; r++) { columnDataValues.push([sourceRows[r][foundSrcIdx]]); }
+
+      let targetSheetColumnRange = targetSheet.getRangeByIndexes(startRowIdx, targetColIdx, sourceRows.length, 1);
+      if (esColumnaTexto(normTHeader)) { targetSheetColumnRange.setNumberFormatLocal("@"); }
+      targetSheetColumnRange.setValues(columnDataValues); 
+    }
+
+    let finalLastRowIdx = startRowIdx + sourceRows.length - 1;
+    let totalRowsCount: number = (finalLastRowIdx - 7) + 1;
+
+    if (totalRowsCount > 0) {
+      let idxEmissio = actualTargetHeaders.indexOf("DATA EMISSIÓ FRA");
+      let idxPagament = actualTargetHeaders.indexOf("DATA PAG.");
+      
+      if (idxEmissio !== -1 && (1 + idxEmissio) <= 23) targetSheet.getRangeByIndexes(7, 1 + idxEmissio, totalRowsCount, 1).setNumberFormatLocal("dd/mm/aaaa");
+      if (idxPagament !== -1 && (1 + idxPagament) <= 23) targetSheet.getRangeByIndexes(7, 1 + idxPagament, totalRowsCount, 1).setNumberFormatLocal("dd/mm/aaaa");
+
+      let rawSortCriteria = diccionariSortSubpestanyes[sheetName];
+      let sortIdx = 0; 
+      if (rawSortCriteria && rawSortCriteria !== "") {
+        let normCriteria = cleanStr(rawSortCriteria);
+        let foundIdx = actualTargetHeaders.findIndex(h => cleanStr(h) === normCriteria || cleanStr(h).includes(normCriteria) || normCriteria.includes(cleanStr(h)));
+        if (foundIdx !== -1 && (1 + foundIdx) <= 23) sortIdx = foundIdx;
+      }
+
+      let sortWidth = Math.min(actualTargetHeaders.length, 23);
+      let sortRange = targetSheet.getRangeByIndexes(7, 1, totalRowsCount, sortWidth);
+      sortRange.getSort().apply([{ key: sortIdx, ascending: ORDEN_ASCENDENTE }], false, false, ExcelScript.SortOrientation.rows);
+    }
+
+    let totalRowIdx = finalLastRowIdx + 3; 
+    let lastDataRowNumber = finalLastRowIdx + 1; 
+
+    targetSheet.getRangeByIndexes(totalRowIdx, 19, 1, 1).setFormula(`=SUM(T8:T${lastDataRowNumber})`); 
+    targetSheet.getRangeByIndexes(totalRowIdx, 20, 1, 1).setFormula(`=SUM(U8:U${lastDataRowNumber})`); 
+    targetSheet.getRangeByIndexes(totalRowIdx, 23, 1, 1).setFormula(`=SUM(X8:X${lastDataRowNumber})`); 
+  }
+
+  // ==========================================
+  // 7. FASE INTERACTIVA: AUTOFILTRO INMUNE SINCRONIZADO
+  // ==========================================
+  try {
+    sourceSheet.getAutoFilter().remove();
+    let finalExportRange = sourceSheet.getUsedRange();
+    if (finalExportRange) {
+      sourceSheet.getAutoFilter().apply(finalExportRange, colAuditoriaIdx, {
+        filterOn: ExcelScript.FilterOn.values,
+        values: filterValues
+      });
+    }
+  } catch (error) {
+    console.log("Nota: L'autofiltre visual de revisió es calcularà en segon pla.");
+  }
+
+  // 8. ARQUITECTURA DE PANEL SEPARADO
+  let panelSheet = workbook.getWorksheet(HOJA_PANEL);
+  if (!panelSheet) { panelSheet = workbook.addWorksheet(HOJA_PANEL); }
+
+  let existingPivots = panelSheet.getPivotTables();
+  for (let p = 0; p < existingPivots.length; p++) { existingPivots[p].delete(); }
+
+  panelSheet.getUsedRange()?.clear(ExcelScript.ClearApplyTo.all);
+  panelSheet.setPosition(0);
+
+  let updatedExportRange = sourceSheet.getUsedRange();
+  let destinoPivotCell: ExcelScript.Range = panelSheet.getRangeByIndexes(1, 1, 1, 1); 
+  
+  if (updatedExportRange) {
+    let pivotTable: ExcelScript.PivotTable = workbook.addPivotTable("ResumDespesesPivot", updatedExportRange, destinoPivotCell);
+    pivotTable.addRowHierarchy(pivotTable.getHierarchy("Fulla Destí"));
+    let dataHierarchy = pivotTable.addDataHierarchy(pivotTable.getHierarchy("Fulla Destí"));
+    dataHierarchy.setSummarizeBy(ExcelScript.AggregationFunction.count);
+    dataHierarchy.setName("Línies d'aquest Lot");
+  }
+
+  console.log("==================================================");
+  console.log("    DADES PROCESSADES    ");
+  console.log("==================================================");
+}
+
+function getColumnLetter(colIdx: number): string {
+  let letter = "";
+  while (colIdx >= 0) {
+    letter = String.fromCharCode((colIdx % 26) + 65) + letter;
+    colIdx = Math.floor(colIdx / 26) - 1;
+  }
+  return letter;
+}
