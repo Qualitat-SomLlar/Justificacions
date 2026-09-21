@@ -71,6 +71,9 @@ export interface ImportSummary {
   facturesModificades: number;
   senseCorrespondencia: number;
   despeses: Despesa[];
+  fullUtilitzat?: string;
+  columnesDetectades?: { camp: string; nomColumna: string; trobada: boolean }[];
+  comptesSenseCorrespondencia?: { compte: string; descripcio: string; count: number }[];
 }
 
 export interface LogEntry {

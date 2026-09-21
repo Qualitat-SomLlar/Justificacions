@@ -27,7 +27,7 @@ interface JustificacionsContextType {
   isCloudSynced: boolean;
   activeExercici: number;
   setActiveExercici: (y: number) => void;
-  importA3File: (fileBuffer: ArrayBuffer) => Promise<ImportSummary>;
+  importA3File: (fileBuffer: ArrayBuffer, preferredSheet?: string) => Promise<ImportSummary>;
   saveImputacions: (
     despesaId: string,
     allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[],
@@ -240,8 +240,8 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   };
 
   // Import A3 File
-  const importA3File = async (fileBuffer: ArrayBuffer): Promise<ImportSummary> => {
-    const summary = parseA3Excel(fileBuffer, equivalencies, despeses);
+  const importA3File = async (fileBuffer: ArrayBuffer, preferredSheet?: string): Promise<ImportSummary> => {
+    const summary = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet);
 
     // Merge new parsed despeses with existing
     const existingMap = new Map<string, Despesa>();

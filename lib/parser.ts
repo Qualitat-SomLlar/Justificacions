@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import { Despesa, Equivalencia, ImportSummary } from "./types";
 
-function cleanStr(s: any): string {
+export function cleanStr(s: any): string {
   if (s === null || s === undefined) return "";
   return String(s)
     .toLowerCase()
@@ -11,7 +11,7 @@ function cleanStr(s: any): string {
     .trim();
 }
 
-function parseNum(val: any): number {
+export function parseNum(val: any): number {
   if (val === null || val === undefined) return 0;
   if (typeof val === "number") return val;
   const s = String(val).trim().replace(/\./g, "").replace(",", ".");
@@ -19,7 +19,7 @@ function parseNum(val: any): number {
   return isNaN(n) ? 0 : n;
 }
 
-function formatDate(val: any): string {
+export function formatDate(val: any): string {
   if (!val) return "";
   if (val instanceof Date) {
     return val.toISOString().split("T")[0];
@@ -41,41 +41,120 @@ function formatDate(val: any): string {
   return s.split(" ")[0];
 }
 
-export function parseA3Excel(
-  fileBuffer: ArrayBuffer | Uint8Array,
-  equivalencies: Equivalencia[],
-  existingDespeses: Despesa[] = []
-): ImportSummary {
-  const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: true });
-  
-  // Look for "Export" sheet or first sheet
-  const sheetName = workbook.SheetNames.find(s => s.toLowerCase() === "export") || workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[sheetName];
-  if (!worksheet) {
-    throw new Error("No s'ha trobat cap full de dades al fitxer Excel.");
-  }
+export interface SheetInfo {
+  name: string;
+  rowCount: number;
+  isRecommended: boolean;
+  score: number;
+}
 
+export interface WorkbookInspection {
+  sheets: SheetInfo[];
+  recommendedSheet: string;
+  detectedColumns: { camp: string; nomColumna: string; trobada: boolean }[];
+  sampleRows: {
+    docA3: string;
+    proveidor: string;
+    factura: string;
+    compte: string;
+    descCompte: string;
+    importTotal: number;
+    partidaDetectada: string;
+  }[];
+}
+
+/**
+ * Score sheet by invoice-affinity to auto-detect the best sheet to import
+ */
+function scoreSheet(sheetName: string, worksheet: XLSX.WorkSheet): number {
+  const sLower = sheetName.toLowerCase();
+  if (
+    sLower.includes("instruccion") ||
+    sLower.includes("resum") ||
+    sLower.includes("panel") ||
+    sLower.includes("equiv") ||
+    sLower.includes("subtotal")
+  ) {
+    return -100;
+  }
   const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-  if (!rawRows || rawRows.length < 2) {
-    throw new Error("El fitxer Excel no conté files de dades suficients.");
-  }
+  if (!rawRows || rawRows.length < 2) return -100;
 
-  // Find header row (usually row 0 or row 1)
+  let score = 0;
+  if (sLower.includes("export")) score += 50;
+  if (sLower.includes("gastos") || sLower.includes("despeses") || sLower.includes("factur")) score += 30;
+
+  const headerRow = rawRows[0] || [];
+  const joined = headerRow.map(c => cleanStr(c)).join(" ");
+  if (joined.includes("compte") || joined.includes("cuenta") || joined.includes("cta")) score += 25;
+  if (joined.includes("factura") || joined.includes("fra")) score += 25;
+  if (joined.includes("proveidor") || joined.includes("proveedor")) score += 25;
+  if (joined.includes("fulldesti") || joined.includes("partida") || joined.includes("desti")) score += 30;
+  if (joined.includes("base")) score += 10;
+  if (joined.includes("total")) score += 10;
+
+  score += Math.min(rawRows.length / 100, 20);
+  return score;
+}
+
+export function findBestSheet(workbook: XLSX.WorkBook, preferredSheet?: string): string {
+  if (preferredSheet && workbook.Sheets[preferredSheet]) {
+    return preferredSheet;
+  }
+  let bestSheet = workbook.SheetNames[0];
+  let maxScore = -999;
+  for (const s of workbook.SheetNames) {
+    const sc = scoreSheet(s, workbook.Sheets[s]);
+    if (sc > maxScore) {
+      maxScore = sc;
+      bestSheet = s;
+    }
+  }
+  return bestSheet;
+}
+
+/**
+ * Inspects the Excel file, returning available sheets, column mapping diagnosis, and a preview
+ */
+export function inspectA3Workbook(
+  fileBuffer: ArrayBuffer | Uint8Array,
+  preferredSheetName?: string
+): WorkbookInspection {
+  const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: true });
+  const recommendedSheet = findBestSheet(workbook, preferredSheetName);
+
+  const sheets: SheetInfo[] = workbook.SheetNames.map(name => {
+    const ws = workbook.Sheets[name];
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    const score = scoreSheet(name, ws);
+    return {
+      name,
+      rowCount: rawRows.length > 0 ? rawRows.length - 1 : 0,
+      isRecommended: name === recommendedSheet,
+      score,
+    };
+  });
+
+  const worksheet = workbook.Sheets[recommendedSheet];
+  const rawRows: any[][] = worksheet ? XLSX.utils.sheet_to_json(worksheet, { header: 1 }) : [];
+
   let headerRowIndex = 0;
   for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
     const row = rawRows[i] || [];
     const joined = row.map(c => cleanStr(c)).join(" ");
-    if (joined.includes("compte") || joined.includes("factura") || joined.includes("proveidor")) {
+    if (
+      joined.includes("compte") ||
+      joined.includes("cuenta") ||
+      joined.includes("factura") ||
+      joined.includes("proveidor") ||
+      joined.includes("proveedor")
+    ) {
       headerRowIndex = i;
       break;
     }
   }
 
   const headers = (rawRows[headerRowIndex] || []).map(h => String(h || "").trim());
-  const headerMap: { [col: string]: number } = {};
-  headers.forEach((h, idx) => {
-    headerMap[cleanStr(h)] = idx;
-  });
 
   const getColIdx = (...terms: string[]) => {
     for (let c = 0; c < headers.length; c++) {
@@ -87,32 +166,152 @@ export function parseA3Excel(
     return -1;
   };
 
-  const colApunte = getColIdx("numapunte");
-  const colFin = getColIdx("financador");
-  const colArea = getColIdx("area");
-  const colProj = getColIdx("projecte");
-  const colPis = getColIdx("pis");
-  const colProv = getColIdx("proveidor");
-  const colNif = getColIdx("nifproveidor", "cif", "nif");
-  const colDocA3 = getColIdx("documenta3", "ndoc");
-  const colFactura = getColIdx("factura");
-  const colData = getColIdx("data");
-  const colDataPag = getColIdx("datapagament", "pagament");
-  const colCompte = getColIdx("comptedespesa", "compte");
-  const colDescCompte = getColIdx("descripciocomptedespesa", "descripciocompte");
-  const colDescLinia = getColIdx("descripciolinia", "linia");
-  const colBase = getColIdx("baseimposable", "base");
-  const colIva = getColIdx("importiva", "iva");
-  const colIrpf = getColIdx("importirpf", "irpf");
-  const colTotalLinia = getColIdx("importtotaldelinia", "costtotal", "totaldelinia");
-  const colTotalDocA3 = getColIdx("totaldocumenta3", "totaldoc");
+  const colDocA3 = getColIdx("documenta3", "ndoc", "documento", "numdoc", "asiento", "numapunte", "apunte");
+  const colFactura = getColIdx("factura", "numfactura", "nfactura", "nrofactura", "fra");
+  const colProv = getColIdx("proveidor", "proveedor", "nomproveidor", "nomproveedor", "nombreproveedor", "raosocial", "razonsocial");
+  const colCompte = getColIdx("comptedespesa", "compte", "cuenta", "cuentagasto", "subcuenta", "subcta", "codicompte", "codcta", "cta");
+  const colDescCompte = getColIdx("descripciocomptedespesa", "descripciocompte", "descripcioncuenta", "descripciocuenta", "nomcompte", "titulocuenta", "desccta");
+  const colPartidaDesti = getColIdx("fulldesti", "fulladesti", "partidadesti", "partida", "partidapressupostaria", "desti", "destino");
+  const colTotalLinia = getColIdx("importtotaldelinia", "importetotaldelinea", "importtotal", "importetotal", "costtotal", "totaldelinia", "totaldelinea", "total");
+
+  const detectedColumns = [
+    { camp: "Document A3 / Asiento", nomColumna: colDocA3 !== -1 ? headers[colDocA3] : "No trobat", trobada: colDocA3 !== -1 },
+    { camp: "Nº Factura", nomColumna: colFactura !== -1 ? headers[colFactura] : "No trobat", trobada: colFactura !== -1 },
+    { camp: "Proveïdor", nomColumna: colProv !== -1 ? headers[colProv] : "No trobat", trobada: colProv !== -1 },
+    { camp: "Compte Comptable", nomColumna: colCompte !== -1 ? headers[colCompte] : "No trobat", trobada: colCompte !== -1 },
+    { camp: "Descripció Compte", nomColumna: colDescCompte !== -1 ? headers[colDescCompte] : "No trobat", trobada: colDescCompte !== -1 },
+    { camp: "Partida Destí (Directa)", nomColumna: colPartidaDesti !== -1 ? headers[colPartidaDesti] : "Per equivalència", trobada: colPartidaDesti !== -1 },
+    { camp: "Import Total", nomColumna: colTotalLinia !== -1 ? headers[colTotalLinia] : "No trobat", trobada: colTotalLinia !== -1 },
+  ];
+
+  const sampleRows: WorkbookInspection["sampleRows"] = [];
+  for (let r = headerRowIndex + 1; r < Math.min(rawRows.length, headerRowIndex + 10); r++) {
+    const row = rawRows[r];
+    if (!row || row.every(c => c === null || c === undefined || String(c).trim() === "")) continue;
+    const doc = colDocA3 !== -1 && row[colDocA3] ? String(row[colDocA3]).trim() : `Línia ${r}`;
+    const prov = colProv !== -1 && row[colProv] ? String(row[colProv]).trim() : "-";
+    const fra = colFactura !== -1 && row[colFactura] ? String(row[colFactura]).trim() : "-";
+    const compte = colCompte !== -1 && row[colCompte] ? String(row[colCompte]).trim() : "-";
+    const descCompte = colDescCompte !== -1 && row[colDescCompte] ? String(row[colDescCompte]).trim() : "-";
+    const imp = colTotalLinia !== -1 ? parseNum(row[colTotalLinia]) : 0;
+    const desti = colPartidaDesti !== -1 && row[colPartidaDesti] ? String(row[colPartidaDesti]).trim() : "";
+
+    sampleRows.push({
+      docA3: doc,
+      proveidor: prov,
+      factura: fra,
+      compte,
+      descCompte,
+      importTotal: imp,
+      partidaDetectada: desti || (compte ? `Assignar per compte ${compte}` : "Sense compte"),
+    });
+
+    if (sampleRows.length >= 3) break;
+  }
+
+  return {
+    sheets,
+    recommendedSheet,
+    detectedColumns,
+    sampleRows,
+  };
+}
+
+/**
+ * Main parser: processes the selected sheet with multi-level partida resolution
+ */
+export function parseA3Excel(
+  fileBuffer: ArrayBuffer | Uint8Array,
+  equivalencies: Equivalencia[],
+  existingDespeses: Despesa[] = [],
+  preferredSheetName?: string
+): ImportSummary {
+  const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: true });
+  
+  const sheetName = findBestSheet(workbook, preferredSheetName);
+  const worksheet = workbook.Sheets[sheetName];
+  if (!worksheet) {
+    throw new Error(`No s'ha trobat cap full de dades anomenat '${sheetName}' al fitxer Excel.`);
+  }
+
+  const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+  if (!rawRows || rawRows.length < 2) {
+    throw new Error(`El full '${sheetName}' no conté files de dades suficients.`);
+  }
+
+  // Find header row (usually row 0 or row 1)
+  let headerRowIndex = 0;
+  for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
+    const row = rawRows[i] || [];
+    const joined = row.map(c => cleanStr(c)).join(" ");
+    if (
+      joined.includes("compte") ||
+      joined.includes("cuenta") ||
+      joined.includes("factura") ||
+      joined.includes("proveidor") ||
+      joined.includes("proveedor")
+    ) {
+      headerRowIndex = i;
+      break;
+    }
+  }
+
+  const headers = (rawRows[headerRowIndex] || []).map(h => String(h || "").trim());
+
+  const getColIdx = (...terms: string[]) => {
+    for (let c = 0; c < headers.length; c++) {
+      const hClean = cleanStr(headers[c]);
+      for (const t of terms) {
+        if (hClean.includes(cleanStr(t))) return c;
+      }
+    }
+    return -1;
+  };
+
+  const colApunte = getColIdx("numapunte", "apunte");
+  const colFin = getColIdx("financador", "financiador", "entitat", "entidad");
+  const colArea = getColIdx("area", "departament", "departamento", "seccion");
+  const colProj = getColIdx("projecte", "proyecto");
+  const colPis = getColIdx("pis", "piso", "immoble", "inmueble", "habitatge", "vivienda", "centre", "centro");
+  const colProv = getColIdx("proveidor", "proveedor", "nomproveidor", "nomproveedor", "nombreproveedor", "raosocial", "razonsocial", "emisor", "tercero");
+  const colNif = getColIdx("nifproveidor", "nifproveedor", "cif", "nif", "cifproveidor", "cifproveedor", "niftercero", "dni");
+  const colDocA3 = getColIdx("documenta3", "ndoc", "documento", "numdoc", "asiento", "numapunte", "apunte");
+  const colFactura = getColIdx("factura", "numfactura", "nfactura", "nrofactura", "fra", "numfra");
+  const colData = getColIdx("data", "fecha", "dataemissio", "fechaemision", "fexpedicion", "femision");
+  const colDataPag = getColIdx("datapagament", "fechapago", "pagament", "pago", "fechavencimiento", "venciment", "fvencimiento");
+  const colCompte = getColIdx("comptedespesa", "compte", "cuenta", "cuentagasto", "subcuenta", "subcta", "codicompte", "codcta", "cta");
+  const colDescCompte = getColIdx("descripciocomptedespesa", "descripciocompte", "descripcioncuenta", "descripciocuenta", "nomcompte", "titulocuenta", "desccta", "descripcio");
+  const colPartidaDesti = getColIdx("fulldesti", "fulladesti", "partidadesti", "partida", "partidapressupostaria", "desti", "destino");
+  const colDescLinia = getColIdx("descripciolinia", "descripcionlinea", "linia", "linea", "concepte", "concepto", "descripcio", "descripcion", "texto");
+  const colBase = getColIdx("baseimposable", "baseimponible", "base", "baseimp");
+  const colIva = getColIdx("importiva", "importeiva", "iva");
+  const colIrpf = getColIdx("importirpf", "importeirpf", "irpf", "retencio", "retencion");
+  const colTotalLinia = getColIdx("importtotaldelinia", "importetotaldelinea", "importtotal", "importetotal", "costtotal", "totaldelinia", "totaldelinea", "total");
+  const colTotalDocA3 = getColIdx("totaldocumenta3", "totaldocumento", "totaldoc", "totalasiento");
+
+  // Diagnosis of detected columns
+  const columnesDetectades = [
+    { camp: "Document A3", nomColumna: colDocA3 !== -1 ? headers[colDocA3] : "No trobat", trobada: colDocA3 !== -1 },
+    { camp: "Factura", nomColumna: colFactura !== -1 ? headers[colFactura] : "No trobat", trobada: colFactura !== -1 },
+    { camp: "Proveïdor", nomColumna: colProv !== -1 ? headers[colProv] : "No trobat", trobada: colProv !== -1 },
+    { camp: "Compte Comptable", nomColumna: colCompte !== -1 ? headers[colCompte] : "No trobat", trobada: colCompte !== -1 },
+    { camp: "Partida Directa", nomColumna: colPartidaDesti !== -1 ? headers[colPartidaDesti] : "No present", trobada: colPartidaDesti !== -1 },
+    { camp: "Import Línia", nomColumna: colTotalLinia !== -1 ? headers[colTotalLinia] : "No trobat", trobada: colTotalLinia !== -1 },
+  ];
 
   // Build dictionary of equivalencies
   const dictComptes: { [compte: string]: string } = {};
   const dictDescripcions: { [desc: string]: string } = {};
   for (const eq of equivalencies) {
-    if (eq.compte && eq.partida_id) dictComptes[cleanStr(eq.compte)] = eq.partida_id;
-    if (eq.descripcio && eq.partida_id) dictDescripcions[cleanStr(eq.descripcio)] = eq.partida_id;
+    if (eq.compte && eq.partida_id) {
+      const cClean = cleanStr(eq.compte);
+      dictComptes[cClean] = eq.partida_id;
+      const digitsOnly = cClean.replace(/[^0-9]/g, "");
+      if (digitsOnly) dictComptes[digitsOnly] = eq.partida_id;
+    }
+    if (eq.descripcio && eq.partida_id) {
+      dictDescripcions[cleanStr(eq.descripcio)] = eq.partida_id;
+    }
   }
 
   // Grouping structures
@@ -145,6 +344,7 @@ export function parseA3Excel(
   const orderOfClaves: string[] = [];
 
   let totalFilesLlegides = 0;
+  const unmappedAccountsTracker = new Map<string, { desc: string; count: number }>();
 
   for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
     const row = rawRows[r];
@@ -162,17 +362,47 @@ export function parseA3Excel(
     const pNorm = proveidor.toUpperCase();
     const isIkea = pNorm.includes("IKEA");
 
-    const rowCompte = colCompte !== -1 && row[colCompte] ? String(row[colCompte]).trim() : "";
-    const rowDescCompte = colDescCompte !== -1 && row[colDescCompte] ? String(row[colDescCompte]).trim() : "";
+    const rowCompte = colCompte !== -1 && row[colCompte] !== undefined ? String(row[colCompte]).trim() : "";
+    const rowDescCompte = colDescCompte !== -1 && row[colDescCompte] !== undefined ? String(row[colDescCompte]).trim() : "";
+    const rowPartidaDesti = colPartidaDesti !== -1 && row[colPartidaDesti] !== undefined ? String(row[colPartidaDesti]).trim() : "";
     
-    // Resolve partida
+    // Resolve partida (Multi-level)
     let targetPartida = "SENSE_CORRESPONDENCIA";
-    if (rowCompte && dictComptes[cleanStr(rowCompte)]) {
-      targetPartida = dictComptes[cleanStr(rowCompte)];
-    } else if (rowDescCompte && dictDescripcions[cleanStr(rowDescCompte)]) {
-      targetPartida = dictDescripcions[cleanStr(rowDescCompte)];
-    } else if (rowDescCompte.toUpperCase().startsWith("DD_")) {
-      targetPartida = rowDescCompte.toUpperCase();
+
+    // 1. Direct Partida column in the Excel (e.g. 'Full destí' / 'Partida')
+    if (rowPartidaDesti && rowPartidaDesti !== "0" && rowPartidaDesti !== "-" && rowPartidaDesti !== "") {
+      const rawP = rowPartidaDesti.toUpperCase().trim();
+      targetPartida = rawP.startsWith("DD_") ? rawP : `DD_${rawP}`;
+    }
+
+    // 2. By Account (exact clean or digits-only)
+    if (targetPartida === "SENSE_CORRESPONDENCIA" && rowCompte) {
+      const cClean = cleanStr(rowCompte);
+      const digitsOnly = cClean.replace(/[^0-9]/g, "");
+      if (dictComptes[cClean]) {
+        targetPartida = dictComptes[cClean];
+      } else if (dictComptes[digitsOnly]) {
+        targetPartida = dictComptes[digitsOnly];
+      }
+    }
+
+    // 3. By Account Description
+    if (targetPartida === "SENSE_CORRESPONDENCIA" && rowDescCompte) {
+      const dClean = cleanStr(rowDescCompte);
+      if (dictDescripcions[dClean]) {
+        targetPartida = dictDescripcions[dClean];
+      } else if (rowDescCompte.toUpperCase().startsWith("DD_")) {
+        targetPartida = rowDescCompte.toUpperCase().trim();
+      }
+    }
+
+    // Track unmapped
+    if (targetPartida === "SENSE_CORRESPONDENCIA" && rowCompte) {
+      const key = rowCompte;
+      if (!unmappedAccountsTracker.has(key)) {
+        unmappedAccountsTracker.set(key, { desc: rowDescCompte, count: 0 });
+      }
+      unmappedAccountsTracker.get(key)!.count++;
     }
 
     let clave: string;
@@ -318,6 +548,14 @@ export function parseA3Excel(
     resultDespeses.push(d);
   }
 
+  const comptesSenseCorrespondencia = Array.from(unmappedAccountsTracker.entries())
+    .map(([compte, data]) => ({
+      compte,
+      descripcio: data.desc,
+      count: data.count,
+    }))
+    .sort((a, b) => b.count - a.count);
+
   return {
     totalFilesLlegides,
     facturesNoves,
@@ -325,5 +563,8 @@ export function parseA3Excel(
     facturesModificades,
     senseCorrespondencia,
     despeses: resultDespeses,
+    fullUtilitzat: sheetName,
+    columnesDetectades,
+    comptesSenseCorrespondencia,
   };
 }
