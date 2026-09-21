@@ -1,9 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Plus, Search, Briefcase, Calendar, Building2, CheckCircle2, XCircle, Edit, Trash2, X } from "lucide-react";
+import { Plus, Search, Calendar, Edit, Trash2, X, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Projecte } from "@/lib/types";
+
+type SortField = "codi" | "financador" | "area" | "dates_text" | "impsCount" | "actiu";
+type SortOrder = "asc" | "desc";
 
 export default function ProjectesPage() {
   const { projectes, addProjecte, updateProjecte, deleteProjecte, imputacions } = useJustificacions();
@@ -12,6 +15,10 @@ export default function ProjectesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Projecte | null>(null);
 
+  // Sorting state
+  const [sortField, setSortField] = useState<SortField>("codi");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+
   // Form states
   const [codi, setCodi] = useState("");
   const [nom, setNom] = useState("");
@@ -19,6 +26,26 @@ export default function ProjectesPage() {
   const [area, setArea] = useState("");
   const [datesText, setDatesText] = useState("01/01/2026-31/12/2026");
   const [pressupostTotal, setPressupostTotal] = useState<number>(0);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const renderSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-300 ml-1 inline" />;
+    }
+    return sortOrder === "asc" ? (
+      <ArrowUp className="w-3.5 h-3.5 text-emerald-600 ml-1 inline" />
+    ) : (
+      <ArrowDown className="w-3.5 h-3.5 text-emerald-600 ml-1 inline" />
+    );
+  };
 
   const openAddModal = () => {
     setEditingProject(null);
@@ -84,6 +111,29 @@ export default function ProjectesPage() {
     });
   }, [projectes, searchTerm]);
 
+  // Sorted projects
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (sortField === "impsCount") {
+        const countA = imputacions.filter(i => i.projecte_id === a.id).length;
+        const countB = imputacions.filter(i => i.projecte_id === b.id).length;
+        return sortOrder === "asc" ? countA - countB : countB - countA;
+      }
+
+      if (sortField === "actiu") {
+        const valA = a.actiu ? 1 : 0;
+        const valB = b.actiu ? 1 : 0;
+        return sortOrder === "asc" ? valA - valB : valB - valA;
+      }
+
+      const strA = String(a[sortField] || "").toLowerCase();
+      const strB = String(b[sortField] || "").toLowerCase();
+      if (strA < strB) return sortOrder === "asc" ? -1 : 1;
+      if (strA > strB) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [filtered, sortField, sortOrder, imputacions]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -129,18 +179,72 @@ export default function ProjectesPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-xs uppercase tracking-wider">
-                <th className="py-3.5 px-4">Codi Projecte</th>
-                <th className="py-3.5 px-4">Finançador</th>
-                <th className="py-3.5 px-4">Àrea</th>
-                <th className="py-3.5 px-4">Període d'Elegibilitat</th>
-                <th className="py-3.5 px-4 text-center">Despeses Assignades</th>
-                <th className="py-3.5 px-4 text-center">Estat</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider select-none">
+                <th 
+                  onClick={() => handleSort("codi")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                  title="Ordenar per Codi"
+                >
+                  <div className="flex items-center">
+                    <span>Codi Projecte</span>
+                    {renderSortIcon("codi")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("financador")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                  title="Ordenar per Finançador"
+                >
+                  <div className="flex items-center">
+                    <span>Finançador</span>
+                    {renderSortIcon("financador")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("area")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                  title="Ordenar per Àrea"
+                >
+                  <div className="flex items-center">
+                    <span>Àrea</span>
+                    {renderSortIcon("area")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("dates_text")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                  title="Ordenar per Període"
+                >
+                  <div className="flex items-center">
+                    <span>Període d'Elegibilitat</span>
+                    {renderSortIcon("dates_text")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("impsCount")}
+                  className="py-3.5 px-4 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
+                  title="Ordenar per Nombre de Despeses"
+                >
+                  <div className="flex items-center justify-center">
+                    <span>Despeses Assignades</span>
+                    {renderSortIcon("impsCount")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("actiu")}
+                  className="py-3.5 px-4 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
+                  title="Ordenar per Estat"
+                >
+                  <div className="flex items-center justify-center">
+                    <span>Estat</span>
+                    {renderSortIcon("actiu")}
+                  </div>
+                </th>
                 <th className="py-3.5 px-4 text-right">Accions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map((proj) => {
+              {sorted.map((proj) => {
                 const impsCount = imputacions.filter(i => i.projecte_id === proj.id).length;
 
                 return (
@@ -190,7 +294,7 @@ export default function ProjectesPage() {
                 );
               })}
 
-              {filtered.length === 0 && (
+              {sorted.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-slate-400">
                     No s'ha trobat cap projecte amb aquest filtre.

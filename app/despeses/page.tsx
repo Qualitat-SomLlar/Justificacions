@@ -4,7 +4,6 @@ import React, { useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { 
   Search, 
-  Filter, 
   Receipt, 
   CheckCircle2, 
   Clock, 
@@ -12,12 +11,26 @@ import {
   ChevronLeft, 
   ChevronRight, 
   UploadCloud,
-  Loader2
+  Loader2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Despesa } from "@/lib/types";
 import ImputacioModal from "@/components/ImputacioModal";
 import ImportModal from "@/components/ImportModal";
+
+type SortField = 
+  | "ndoc_a3" 
+  | "factura" 
+  | "proveidor" 
+  | "partida_id" 
+  | "data_emissio" 
+  | "total_factura" 
+  | "percentatge_total";
+
+type SortOrder = "asc" | "desc";
 
 function DespesesContent() {
   const searchParams = useSearchParams();
@@ -33,7 +46,31 @@ function DespesesContent() {
   const [selectedDespesa, setSelectedDespesa] = useState<Despesa | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
 
+  // Sorting state
+  const [sortField, setSortField] = useState<SortField>("data_emissio");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
   const pageSize = 25;
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const renderSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-300 ml-1 inline" />;
+    }
+    return sortOrder === "asc" ? (
+      <ArrowUp className="w-3.5 h-3.5 text-emerald-600 ml-1 inline" />
+    ) : (
+      <ArrowDown className="w-3.5 h-3.5 text-emerald-600 ml-1 inline" />
+    );
+  };
 
   // Extract unique Pis codes for filtering
   const uniquePisos = useMemo(() => {
@@ -75,11 +112,29 @@ function DespesesContent() {
     });
   }, [despeses, searchTerm, selectedPartida, selectedEstat, selectedPis]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // Sorted despeses
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      const valA = a[sortField] ?? "";
+      const valB = b[sortField] ?? "";
+
+      if (typeof valA === "number" && typeof valB === "number") {
+        return sortOrder === "asc" ? valA - valB : valB - valA;
+      }
+
+      const strA = String(valA).toLowerCase();
+      const strB = String(valB).toLowerCase();
+      if (strA < strB) return sortOrder === "asc" ? -1 : 1;
+      if (strA > strB) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [filtered, sortField, sortOrder]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, currentPage]);
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, currentPage]);
 
   return (
     <div className="space-y-6">
@@ -167,7 +222,18 @@ function DespesesContent() {
         </div>
 
         <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
-          <span>Mostrant <strong>{filtered.length}</strong> factures trobades</span>
+          <span>
+            Mostrant <strong>{sorted.length}</strong> factures (ordenat per{" "}
+            <strong>
+              {sortField === "data_emissio" && "Data"}
+              {sortField === "total_factura" && "Total Factura"}
+              {sortField === "proveidor" && "Proveïdor"}
+              {sortField === "ndoc_a3" && "Doc A3"}
+              {sortField === "partida_id" && "Partida"}
+              {sortField === "percentatge_total" && "Estat Imputat"}
+            </strong>{" "}
+            {sortOrder === "asc" ? "▲ ascendent" : "▼ descendent"})
+          </span>
           {(searchTerm || selectedPartida !== "totes" || selectedEstat !== "tots" || selectedPis !== "tots") && (
             <button
               onClick={() => {
@@ -190,13 +256,67 @@ function DespesesContent() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-xs uppercase tracking-wider">
-                <th className="py-3.5 px-4">Doc A3 / Factura</th>
-                <th className="py-3.5 px-4">Proveïdor / Concepte</th>
-                <th className="py-3.5 px-4">Partida / Pis</th>
-                <th className="py-3.5 px-4">Data</th>
-                <th className="py-3.5 px-4 text-right">Total Factura</th>
-                <th className="py-3.5 px-4 text-center">Estat / Imputat</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
+                <th 
+                  onClick={() => handleSort("ndoc_a3")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
+                  title="Fes clic per ordenar per Document A3"
+                >
+                  <div className="flex items-center">
+                    <span>Doc A3 / Factura</span>
+                    {renderSortIcon("ndoc_a3")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("proveidor")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
+                  title="Fes clic per ordenar per Proveïdor"
+                >
+                  <div className="flex items-center">
+                    <span>Proveïdor / Concepte</span>
+                    {renderSortIcon("proveidor")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("partida_id")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
+                  title="Fes clic per ordenar per Partida"
+                >
+                  <div className="flex items-center">
+                    <span>Partida / Pis</span>
+                    {renderSortIcon("partida_id")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("data_emissio")}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
+                  title="Fes clic per ordenar per Data"
+                >
+                  <div className="flex items-center">
+                    <span>Data</span>
+                    {renderSortIcon("data_emissio")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("total_factura")}
+                  className="py-3.5 px-4 text-right cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
+                  title="Fes clic per ordenar per Total Factura"
+                >
+                  <div className="flex items-center justify-end">
+                    <span>Total Factura</span>
+                    {renderSortIcon("total_factura")}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("percentatge_total")}
+                  className="py-3.5 px-4 text-center cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
+                  title="Fes clic per ordenar per % Imputat"
+                >
+                  <div className="flex items-center justify-center">
+                    <span>Estat / Imputat</span>
+                    {renderSortIcon("percentatge_total")}
+                  </div>
+                </th>
                 <th className="py-3.5 px-4">Projectes Assignats</th>
                 <th className="py-3.5 px-4 text-center">Acció</th>
               </tr>
