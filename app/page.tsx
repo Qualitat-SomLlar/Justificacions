@@ -201,13 +201,21 @@ export default function DashboardPage() {
                   <th className="pb-3">Àrea</th>
                   <th className="pb-3 text-center">Factures</th>
                   <th className="pb-3 text-right">Total Justificat</th>
+                  <th className="pb-3 text-right">Despeses per Partida</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {projectStats.slice(0, 10).map((proj) => (
                   <tr key={proj.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 font-bold text-slate-900">
-                      {proj.codi}
+                      <Link
+                        href={`/despeses?projecte=${proj.id}`}
+                        className="inline-flex items-center space-x-1.5 text-emerald-700 hover:text-emerald-900 hover:underline group font-bold"
+                        title={`Veure totes les despeses de ${proj.codi} agrupades per partides`}
+                      >
+                        <span>{proj.codi}</span>
+                        <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-emerald-600" />
+                      </Link>
                     </td>
                     <td className="py-3 text-slate-600">
                       <span className="px-2 py-0.5 rounded bg-slate-100 font-medium text-xs">
@@ -223,11 +231,21 @@ export default function DashboardPage() {
                     <td className="py-3 text-right font-black text-emerald-700">
                       {proj.totalJustificat.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €
                     </td>
+                    <td className="py-3 text-right">
+                      <Link
+                        href={`/despeses?projecte=${proj.id}`}
+                        className="inline-flex items-center space-x-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                        title={`Obrir despeses de ${proj.codi} per partides`}
+                      >
+                        <span>Veure per partides</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </Link>
+                    </td>
                   </tr>
                 ))}
                 {projectStats.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-6 text-center text-slate-400 text-sm">
+                    <td colSpan={6} className="py-6 text-center text-slate-400 text-sm">
                       No hi ha projectes carregats.
                     </td>
                   </tr>
