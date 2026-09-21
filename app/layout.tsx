@@ -20,11 +20,13 @@ export default function RootLayout({
         <AuthProvider>
           <JustificacionsProvider>
             <Navbar />
-            <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+            <main className="flex-1 max-w-[1660px] w-full mx-auto p-4 sm:p-6 lg:p-8">
               {children}
             </main>
             <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
-              Som Llar &copy; {new Date().getFullYear()} &mdash; Sistema de Gestió Econòmica i Control de Justificacions
+              <div className="max-w-[1660px] mx-auto px-4">
+                Som Llar &copy; {new Date().getFullYear()} &mdash; Sistema de Gestió Econòmica i Control de Justificacions
+              </div>
             </footer>
           </JustificacionsProvider>
         </AuthProvider>
