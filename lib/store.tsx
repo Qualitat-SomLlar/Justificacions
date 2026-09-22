@@ -33,6 +33,10 @@ interface JustificacionsContextType {
     allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[],
     comentariGlobal?: string
   ) => void;
+  bulkAssignPartida: (despesaIds: string[], partidaId: string, comentaris?: string) => void;
+  bulkImputar: (despesaIds: string[], allocations: { projecte_id: string; percentatge: number }[], comentaris?: string) => void;
+  bulkResetImputacions: (despesaIds: string[], comentaris?: string) => void;
+  bulkDeleteDespeses: (despesaIds: string[], comentaris?: string) => void;
   addProjecte: (p: Omit<Projecte, "id">) => void;
   updateProjecte: (p: Projecte) => void;
   deleteProjecte: (id: string) => void;
@@ -341,6 +345,135 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     );
   };
 
+  // Bulk Actions
+  const bulkAssignPartida = (despesaIds: string[], partidaId: string, comentaris?: string) => {
+    if (despesaIds.length === 0) return;
+    const idSet = new Set(despesaIds);
+    const updatedDespeses = despeses.map(d => {
+      if (idSet.has(d.id)) {
+        return {
+          ...d,
+          partida_id: partidaId
+        };
+      }
+      return d;
+    });
+
+    persistDespeses(updatedDespeses);
+
+    recordLog(
+      "nota_manual",
+      `Assignació Massiva de Partida: ${partidaId} (${despesaIds.length} factures)`,
+      `S'ha assignat la partida ${partidaId} a ${despesaIds.length} factures seleccionades.`,
+      { comentaris }
+    );
+  };
+
+  const bulkImputar = (
+    despesaIds: string[],
+    allocations: { projecte_id: string; percentatge: number }[],
+    comentaris?: string
+  ) => {
+    if (despesaIds.length === 0) return;
+    const idSet = new Set(despesaIds);
+    const validAllocations = allocations.filter(a => a.percentatge > 0);
+    const totalPercent = Math.round(validAllocations.reduce((acc, curr) => acc + curr.percentatge, 0) * 100) / 100;
+
+    let estat: Despesa["estat"] = 'pendent';
+    if (totalPercent > 100.01) {
+      estat = 'excedida';
+    } else if (Math.abs(totalPercent - 100) <= 0.01) {
+      estat = 'completada';
+    } else if (totalPercent > 0) {
+      estat = 'parcial';
+    }
+
+    const preservedImputacions = imputacions.filter(imp => !idSet.has(imp.despesa_id));
+    const newImps: Imputacio[] = [];
+
+    const updatedDespeses = despeses.map(d => {
+      if (idSet.has(d.id)) {
+        let totalImport = 0;
+        for (const alloc of validAllocations) {
+          const importAlloc = Math.round(((alloc.percentatge / 100) * d.total_factura) * 100) / 100;
+          totalImport += importAlloc;
+          newImps.push({
+            id: `${d.id}_${alloc.projecte_id}`,
+            despesa_id: d.id,
+            projecte_id: alloc.projecte_id,
+            percentatge: alloc.percentatge,
+            import: importAlloc,
+            observacions: comentaris || "",
+            data_actualitzacio: new Date().toISOString()
+          });
+        }
+
+        return {
+          ...d,
+          percentatge_total: totalPercent,
+          import_total: Math.round(totalImport * 100) / 100,
+          estat
+        };
+      }
+      return d;
+    });
+
+    persistImputacions([...preservedImputacions, ...newImps]);
+    persistDespeses(updatedDespeses);
+
+    const allocDesc = validAllocations.map(a => `${a.projecte_id} (${a.percentatge}%)`).join(", ") || "Sense projectes (0%)";
+    recordLog(
+      "imputacio",
+      `Imputació Massiva a Projectes (${despesaIds.length} factures)`,
+      `Repartiment aplicat a ${despesaIds.length} factures: ${allocDesc}`,
+      { comentaris }
+    );
+  };
+
+  const bulkResetImputacions = (despesaIds: string[], comentaris?: string) => {
+    if (despesaIds.length === 0) return;
+    const idSet = new Set(despesaIds);
+    const updatedImputacions = imputacions.filter(imp => !idSet.has(imp.despesa_id));
+    persistImputacions(updatedImputacions);
+
+    const updatedDespeses = despeses.map(d => {
+      if (idSet.has(d.id)) {
+        return {
+          ...d,
+          percentatge_total: 0,
+          import_total: 0,
+          estat: 'pendent' as const
+        };
+      }
+      return d;
+    });
+    persistDespeses(updatedDespeses);
+
+    recordLog(
+      "imputacio",
+      `Imputacions Reiniciades en Bloc (${despesaIds.length} factures)`,
+      `S'han esborrat les imputacions prèvies de ${despesaIds.length} factures, deixant-les a 0% Pendent.`,
+      { comentaris }
+    );
+  };
+
+  const bulkDeleteDespeses = (despesaIds: string[], comentaris?: string) => {
+    if (despesaIds.length === 0) return;
+    const idSet = new Set(despesaIds);
+    const updatedDespeses = despeses.filter(d => !idSet.has(d.id));
+    const updatedImputacions = imputacions.filter(imp => !idSet.has(imp.despesa_id));
+
+    persistDespeses(updatedDespeses);
+    persistImputacions(updatedImputacions);
+
+    recordLog(
+      "nota_manual",
+      `Factures Eliminades en Bloc (${despesaIds.length} factures)`,
+      `S'han eliminat del sistema ${despesaIds.length} factures i les seves imputacions associades.`,
+      { comentaris }
+    );
+  };
+
   // Assign Partida to Account & re-evaluate despeses
   const assignPartidaToCompte = (compte: string, partidaId: string) => {
     const existing = equivalencies.find(e => e.compte === compte);
@@ -577,6 +710,10 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         updateEquivalencia,
         deleteEquivalencia,
         assignPartidaToCompte,
+        bulkAssignPartida,
+        bulkImputar,
+        bulkResetImputacions,
+        bulkDeleteDespeses,
         addManualLog,
         updateLogComentari,
         deleteLogEntry,

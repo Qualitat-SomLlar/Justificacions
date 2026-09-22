@@ -19,12 +19,21 @@ import {
   Table2,
   X,
   Edit,
-  Briefcase
+  Briefcase,
+  RotateCcw,
+  Trash2,
+  CheckSquare
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Despesa, Partida } from "@/lib/types";
 import ImputacioModal from "@/components/ImputacioModal";
 import ImportModal from "@/components/ImportModal";
+import {
+  BulkPartidaModal,
+  BulkImputarModal,
+  BulkResetModal,
+  BulkDeleteModal,
+} from "@/components/BulkActionsModals";
 
 type SortField = 
   | "ndoc_a3" 
@@ -42,7 +51,16 @@ function DespesesContent() {
   const initialFilter = searchParams.get("filter") || "tots";
   const initialProjecte = searchParams.get("projecte") || "tots";
 
-  const { despeses, imputacions, partides, projectes } = useJustificacions();
+  const { 
+    despeses, 
+    imputacions, 
+    partides, 
+    projectes,
+    bulkAssignPartida,
+    bulkImputar,
+    bulkResetImputacions,
+    bulkDeleteDespeses
+  } = useJustificacions();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedProjecte, setSelectedProjecte] = useState(initialProjecte);
@@ -53,6 +71,13 @@ function DespesesContent() {
   const [selectedDespesa, setSelectedDespesa] = useState<Despesa | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"partides" | "taula">(initialProjecte !== "tots" ? "partides" : "taula");
+
+  // Selection & Bulk Action States
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkPartidaOpen, setIsBulkPartidaOpen] = useState(false);
+  const [isBulkImputarOpen, setIsBulkImputarOpen] = useState(false);
+  const [isBulkResetOpen, setIsBulkResetOpen] = useState(false);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
 
   // Sync state if URL query param changes
   useEffect(() => {
@@ -222,6 +247,82 @@ function DespesesContent() {
     const start = (currentPage - 1) * pageSize;
     return sorted.slice(start, start + pageSize);
   }, [sorted, currentPage]);
+
+  // Computed selection details
+  const selectedExpenses = useMemo(() => {
+    return despeses.filter(d => selectedIds.has(d.id));
+  }, [despeses, selectedIds]);
+
+  const selectedTotal = useMemo(() => {
+    return selectedExpenses.reduce((sum, d) => sum + d.total_factura, 0);
+  }, [selectedExpenses]);
+
+  // Selection handlers
+  const toggleSelectOne = (id: string, e?: React.MouseEvent | React.ChangeEvent) => {
+    e?.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectPage = () => {
+    const allPageSelected = paginated.length > 0 && paginated.every(d => selectedIds.has(d.id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      paginated.forEach(d => {
+        if (allPageSelected) {
+          next.delete(d.id);
+        } else {
+          next.add(d.id);
+        }
+      });
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    const next = new Set(selectedIds);
+    filtered.forEach(d => next.add(d.id));
+    setSelectedIds(next);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  // Bulk action confirm handlers
+  const handleBulkPartidaConfirm = (partidaId: string, comentari?: string) => {
+    bulkAssignPartida(Array.from(selectedIds), partidaId, comentari);
+    clearSelection();
+    setIsBulkPartidaOpen(false);
+  };
+
+  const handleBulkImputarConfirm = (
+    allocations: { projecte_id: string; percentatge: number }[],
+    comentari?: string
+  ) => {
+    bulkImputar(Array.from(selectedIds), allocations, comentari);
+    clearSelection();
+    setIsBulkImputarOpen(false);
+  };
+
+  const handleBulkResetConfirm = (comentari?: string) => {
+    bulkResetImputacions(Array.from(selectedIds), comentari);
+    clearSelection();
+    setIsBulkResetOpen(false);
+  };
+
+  const handleBulkDeleteConfirm = (comentari?: string) => {
+    bulkDeleteDespeses(Array.from(selectedIds), comentari);
+    clearSelection();
+    setIsBulkDeleteOpen(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -444,6 +545,31 @@ function DespesesContent() {
         </div>
       </div>
 
+      {/* Selection Info / Select All Banner */}
+      {selectedIds.size > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-900 shadow-sm animate-in fade-in">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-semibold">
+              Tens <strong>{selectedIds.size}</strong> {selectedIds.size === 1 ? "factura seleccionada" : "factures seleccionades"} (Total: <strong>{selectedTotal.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €</strong>).
+            </span>
+            {selectedIds.size < filtered.length && (
+              <button
+                onClick={selectAllFiltered}
+                className="font-bold underline text-emerald-700 hover:text-emerald-900 ml-1"
+              >
+                Seleccionar totes les {filtered.length} factures filtrades
+              </button>
+            )}
+          </div>
+          <button
+            onClick={clearSelection}
+            className="text-xs text-slate-500 hover:text-slate-800 font-semibold self-start sm:self-auto hover:underline"
+          >
+            Deseleccionar totes
+          </button>
+        </div>
+      )}
+
       {/* VIEW MODE 1: AGRUPAT PER PARTIDES */}
       {viewMode === "partides" && (
         <div className="space-y-4">
@@ -466,6 +592,33 @@ function DespesesContent() {
                 {/* Partida Header Card */}
                 <div className="bg-slate-50/80 px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id))}
+                      ref={el => {
+                        if (el) {
+                          const some = group.despeses.some(d => selectedIds.has(d.id));
+                          const all = group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id));
+                          el.indeterminate = some && !all;
+                        }
+                      }}
+                      onChange={() => {
+                        const allSelected = group.despeses.every(d => selectedIds.has(d.id));
+                        setSelectedIds(prev => {
+                          const next = new Set(prev);
+                          group.despeses.forEach(d => {
+                            if (allSelected) {
+                              next.delete(d.id);
+                            } else {
+                              next.add(d.id);
+                            }
+                          });
+                          return next;
+                        });
+                      }}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      title="Seleccionar / deseleccionar totes les factures d'aquesta partida"
+                    />
                     <div className="p-2 rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs">
                       {group.partidaId.substring(0, 2) === "DD" ? "DD" : "P"}
                     </div>
@@ -507,6 +660,35 @@ function DespesesContent() {
                   <table className="w-full text-left text-xs sm:text-sm">
                     <thead>
                       <tr className="border-b border-slate-100 text-slate-500 font-semibold text-xs bg-slate-50/40 uppercase tracking-wider">
+                        <th className="py-2.5 px-3 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id))}
+                            ref={el => {
+                              if (el) {
+                                const some = group.despeses.some(d => selectedIds.has(d.id));
+                                const all = group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id));
+                                el.indeterminate = some && !all;
+                              }
+                            }}
+                            onChange={() => {
+                              const allSelected = group.despeses.every(d => selectedIds.has(d.id));
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                group.despeses.forEach(d => {
+                                  if (allSelected) {
+                                    next.delete(d.id);
+                                  } else {
+                                    next.add(d.id);
+                                  }
+                                });
+                                return next;
+                              });
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            title="Seleccionar totes les d'aquesta partida"
+                          />
+                        </th>
                         <th className="py-2.5 px-4">Doc A3 / Factura</th>
                         <th className="py-2.5 px-4">Data</th>
                         <th className="py-2.5 px-4">Proveïdor / Concepte</th>
@@ -521,7 +703,21 @@ function DespesesContent() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {group.despeses.map((d) => (
-                        <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr 
+                          key={d.id} 
+                          className={`transition-colors cursor-pointer ${
+                            selectedIds.has(d.id) ? "bg-emerald-50/70 hover:bg-emerald-100/60" : "hover:bg-slate-50/80"
+                          }`}
+                          onClick={() => toggleSelectOne(d.id)}
+                        >
+                          <td className="py-3 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(d.id)}
+                              onChange={(e) => toggleSelectOne(d.id, e)}
+                              className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                          </td>
                           <td className="py-3 px-4 font-mono font-bold text-slate-900">
                             <div>{d.ndoc_a3}</div>
                             <div className="text-xs text-slate-500 font-sans">{d.factura || "Sense Fra."}</div>
@@ -578,7 +774,7 @@ function DespesesContent() {
                               {d.estat === "excedida" && "⚠️ >100% Excedida"}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-center">
+                          <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => setSelectedDespesa(d)}
                               className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold shadow-sm transition-all"
@@ -605,6 +801,22 @@ function DespesesContent() {
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
+                <th className="py-3.5 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={paginated.length > 0 && paginated.every(d => selectedIds.has(d.id))}
+                    ref={el => {
+                      if (el) {
+                        const some = paginated.some(d => selectedIds.has(d.id));
+                        const all = paginated.length > 0 && paginated.every(d => selectedIds.has(d.id));
+                        el.indeterminate = some && !all;
+                      }
+                    }}
+                    onChange={toggleSelectPage}
+                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    title="Seleccionar / deseleccionar totes les d'aquesta pàgina"
+                  />
+                </th>
                 <th 
                   onClick={() => handleSort("ndoc_a3")}
                   className="py-3.5 px-4 cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
@@ -674,7 +886,21 @@ function DespesesContent() {
                 const despesaImps = imputacions.filter(i => i.despesa_id === despesa.id);
 
                 return (
-                  <tr key={despesa.id} className="hover:bg-slate-50/70 transition-colors">
+                  <tr 
+                    key={despesa.id} 
+                    className={`transition-colors cursor-pointer ${
+                      selectedIds.has(despesa.id) ? "bg-emerald-50/70 hover:bg-emerald-100/60" : "hover:bg-slate-50/70"
+                    }`}
+                    onClick={() => toggleSelectOne(despesa.id)}
+                  >
+                    <td className="py-3 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(despesa.id)}
+                        onChange={(e) => toggleSelectOne(despesa.id, e)}
+                        className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                    </td>
                     <td className="py-3 px-4">
                       <div className="font-bold text-slate-900">{despesa.ndoc_a3}</div>
                       <div className="text-xs text-slate-500">{despesa.factura || "Sense Fra."}</div>
@@ -758,7 +984,7 @@ function DespesesContent() {
                       </div>
                     </td>
 
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => setSelectedDespesa(despesa)}
                         className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition-colors"
@@ -773,7 +999,7 @@ function DespesesContent() {
 
               {paginated.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <Receipt className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-sm">No s'ha trobat cap despesa</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -813,6 +1039,104 @@ function DespesesContent() {
         )}
       </div>
       )}
+
+      {/* Floating Bottom Bulk Actions Bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl shadow-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 border border-slate-700 max-w-4xl w-[95%] animate-in fade-in slide-in-from-bottom-5">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-sm border border-emerald-500/30">
+              {selectedIds.size}
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-bold text-white leading-tight">
+                {selectedIds.size} {selectedIds.size === 1 ? "factura seleccionada" : "factures seleccionades"}
+              </p>
+              <p className="text-[11px] text-slate-300 leading-tight mt-0.5">
+                Total: <strong className="text-emerald-300">{selectedTotal.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €</strong>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setIsBulkPartidaOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition-colors flex items-center space-x-1.5"
+            >
+              <FolderTree className="w-3.5 h-3.5" />
+              <span>Assignar Partida</span>
+            </button>
+
+            <button
+              onClick={() => setIsBulkImputarOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-sm transition-colors flex items-center space-x-1.5"
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Imputar a Projecte</span>
+            </button>
+
+            <button
+              onClick={() => setIsBulkResetOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-sm transition-colors flex items-center space-x-1.5"
+              title="Reiniciar imputacions a 0%"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reiniciar</span>
+            </button>
+
+            <button
+              onClick={() => setIsBulkDeleteOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-sm transition-colors flex items-center space-x-1.5"
+              title="Eliminar factures seleccionades"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Eliminar</span>
+            </button>
+
+            <button
+              onClick={clearSelection}
+              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-colors"
+              title="Deseleccionar totes"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Action Modals */}
+      <BulkPartidaModal
+        isOpen={isBulkPartidaOpen}
+        selectedCount={selectedIds.size}
+        selectedTotal={selectedTotal}
+        partides={partides}
+        onClose={() => setIsBulkPartidaOpen(false)}
+        onConfirm={handleBulkPartidaConfirm}
+      />
+
+      <BulkImputarModal
+        isOpen={isBulkImputarOpen}
+        selectedCount={selectedIds.size}
+        selectedTotal={selectedTotal}
+        projectes={projectes}
+        onClose={() => setIsBulkImputarOpen(false)}
+        onConfirm={handleBulkImputarConfirm}
+      />
+
+      <BulkResetModal
+        isOpen={isBulkResetOpen}
+        selectedCount={selectedIds.size}
+        selectedTotal={selectedTotal}
+        onClose={() => setIsBulkResetOpen(false)}
+        onConfirm={handleBulkResetConfirm}
+      />
+
+      <BulkDeleteModal
+        isOpen={isBulkDeleteOpen}
+        selectedCount={selectedIds.size}
+        selectedTotal={selectedTotal}
+        onClose={() => setIsBulkDeleteOpen(false)}
+        onConfirm={handleBulkDeleteConfirm}
+      />
 
       {selectedDespesa && (
         <ImputacioModal
