@@ -1,20 +1,45 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Despesa, Imputacio, Projecte, Partida, Equivalencia, ImportSummary, LogEntry } from "./types";
 import { parseA3Excel } from "./parser";
 import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
-import { auth } from "./firebase";
+import { auth, db } from "./firebase";
 import {
-  fetchRemoteData,
-  syncProjectesToFirestore,
-  syncEquivalenciesToFirestore,
-  syncPartidesToFirestore,
-  syncDespesesToFirestore,
-  syncImputacionsToFirestore,
-  syncHistorialToFirestore
+  BUCKETS,
+  SCHEMA_VERSION,
+  fetchSchemaVersion,
+  fetchLegacyBuckets,
+  subscribeBucket,
+  writeBucketChanges,
+  writeMigration
 } from "./firestore_sync";
+import { diffById, mergeForMigration, recalcDespesesFromImputacions } from "./sync_utils";
+
+/**
+ * - checking: reading the schema version from Firestore
+ * - local: no Firebase session (e.g. mode proves); data only in this browser
+ * - migration_pending: Firestore still has the old format; data only in this browser until migrated
+ * - synced: live sync, one Firestore document per item
+ * - error: Firestore couldn't be reached; data only in this browser
+ */
+export type CloudStatus = "checking" | "local" | "migration_pending" | "synced" | "error";
+
+export interface MigrationBucketPlan {
+  bucket: string;
+  label: string;
+  remoteCount: number;
+  localCount: number;
+  resultCount: number;
+  preferencia: "núvol" | "aquest navegador";
+  items: any[];
+  key: (item: any) => string;
+}
+
+export interface MigrationPlan {
+  buckets: MigrationBucketPlan[];
+}
 
 interface JustificacionsContextType {
   despeses: Despesa[];
@@ -25,6 +50,11 @@ interface JustificacionsContextType {
   historial: LogEntry[];
   isLoading: boolean;
   isCloudSynced: boolean;
+  cloudStatus: CloudStatus;
+  syncError: string | null;
+  clearSyncError: () => void;
+  prepareMigration: () => Promise<MigrationPlan>;
+  runMigration: (plan: MigrationPlan) => Promise<void>;
   activeExercici: number;
   setActiveExercici: (y: number) => void;
   importA3File: (fileBuffer: ArrayBuffer, preferredSheet?: string) => Promise<ImportSummary>;
@@ -55,14 +85,65 @@ interface JustificacionsContextType {
   reloadSeedData: () => void;
 }
 
-const STORAGE_KEYS = {
+// Despeses i imputacions es guarden per exercici; el catàleg és compartit entre exercicis.
+const LEGACY_EXERCICI = 2026;
+const LEGACY_KEYS = {
   DESPESES: "somllar_despeses_v1",
   IMPUTACIONS: "somllar_imputacions_v1",
+};
+const despesesKey = (exercici: number) => `somllar_despeses_${exercici}_v1`;
+const imputacionsKey = (exercici: number) => `somllar_imputacions_${exercici}_v1`;
+
+// Les dades anteriors a la separació per exercici sempre s'havien carregat com a 2026
+function migrateLegacyExerciciKeys() {
+  const pairs: [string, string][] = [
+    [LEGACY_KEYS.DESPESES, despesesKey(LEGACY_EXERCICI)],
+    [LEGACY_KEYS.IMPUTACIONS, imputacionsKey(LEGACY_EXERCICI)],
+  ];
+  for (const [legacyKey, newKey] of pairs) {
+    const legacy = localStorage.getItem(legacyKey);
+    if (legacy === null) continue;
+    if (localStorage.getItem(newKey) === null) {
+      localStorage.setItem(newKey, legacy);
+    }
+    localStorage.removeItem(legacyKey);
+  }
+}
+
+const STORAGE_KEYS = {
   PROJECTES: "somllar_projectes_v1",
   PARTIDES: "somllar_partides_v1",
   EQUIVALENCIES: "somllar_equivalencies_v1",
   HISTORIAL: "somllar_historial_v1",
 };
+
+// Identity of each item, used as Firestore document ID
+const KEYS = {
+  despeses: (d: Despesa) => d.id,
+  imputacions: (i: Imputacio) => i.id,
+  projectes: (p: Projecte) => p.id,
+  partides: (p: Partida) => p.id,
+  equivalencies: (e: Equivalencia) => e.compte,
+  historial: (l: LogEntry) => l.id,
+};
+
+const readLocal = <T,>(key: string): T[] | null => {
+  const raw = localStorage.getItem(key);
+  return raw ? (JSON.parse(raw) as T[]) : null;
+};
+
+const sortHistorial = (items: LogEntry[]) =>
+  [...items].sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
+
+function describeFirestoreError(e: any): string {
+  if (e?.code === "permission-denied") {
+    return "Firestore ha denegat l'accés (permission-denied). Revisa les regles de seguretat i que hagis iniciat sessió amb un compte autoritzat.";
+  }
+  if (e?.code === "unavailable") {
+    return "No hi ha connexió amb Firestore. Els canvis es guarden en aquest navegador i s'enviaran quan torni la connexió.";
+  }
+  return `Error de sincronització amb Firestore: ${e?.message || e}`;
+}
 
 const JustificacionsContext = createContext<JustificacionsContextType | null>(null);
 
@@ -74,12 +155,25 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   const [equivalencies, setEquivalencies] = useState<Equivalencia[]>([]);
   const [historial, setHistorial] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
+  const [cloudStatus, setCloudStatus] = useState<CloudStatus>("checking");
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [activeExercici, setActiveExercici] = useState<number>(2026);
 
-  // Initialize from localStorage and sync from Firestore in background
+  // Firestore writes only happen once the data is in the new format (schema v2)
+  const cloudEnabled = cloudStatus === "synced";
+  const cloudRef = useRef(false);
+  cloudRef.current = cloudEnabled;
+
+  const reportSyncError = (e: any) => {
+    console.warn("Firestore:", e);
+    setSyncError(describeFirestoreError(e));
+  };
+
+  // Initialize catalog and historial from localStorage (shared across exercicis)
   useEffect(() => {
     try {
+      migrateLegacyExerciciKeys();
+
       const storedPartides = localStorage.getItem(STORAGE_KEYS.PARTIDES);
       if (storedPartides) {
         setPartides(JSON.parse(storedPartides));
@@ -104,16 +198,6 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(seedData.projectes));
       }
 
-      const storedDespeses = localStorage.getItem(STORAGE_KEYS.DESPESES);
-      if (storedDespeses) {
-        setDespeses(JSON.parse(storedDespeses));
-      }
-
-      const storedImputacions = localStorage.getItem(STORAGE_KEYS.IMPUTACIONS);
-      if (storedImputacions) {
-        setImputacions(JSON.parse(storedImputacions));
-      }
-
       const storedHistorial = localStorage.getItem(STORAGE_KEYS.HISTORIAL);
       if (storedHistorial) {
         setHistorial(JSON.parse(storedHistorial));
@@ -132,91 +216,121 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       }
     } catch (e) {
       console.error("Error al carregar de localStorage:", e);
+    }
+
+    // Decide the sync mode. Without a Firebase session (mode proves) Firestore is never touched.
+    if (!db || !auth?.currentUser) {
+      setCloudStatus("local");
+      return;
+    }
+    fetchSchemaVersion()
+      .then(version => setCloudStatus(version >= SCHEMA_VERSION ? "synced" : "migration_pending"))
+      .catch(e => {
+        reportSyncError(e);
+        setCloudStatus("error");
+      });
+  }, []);
+
+  // Load the active exercici's despeses/imputacions from this browser
+  useEffect(() => {
+    try {
+      migrateLegacyExerciciKeys();
+      setDespeses(readLocal<Despesa>(despesesKey(activeExercici)) || []);
+      setImputacions(readLocal<Imputacio>(imputacionsKey(activeExercici)) || []);
+    } catch (e) {
+      console.error("Error al carregar de localStorage:", e);
+      setDespeses([]);
+      setImputacions([]);
     } finally {
       setIsLoading(false);
     }
-
-    // Background Firestore Sync
-    fetchRemoteData(activeExercici).then((remote) => {
-      if (remote) {
-        setIsCloudSynced(true);
-        if (remote.projectes && remote.projectes.length > 0) {
-          setProjectes(remote.projectes);
-          localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(remote.projectes));
-        } else {
-          syncProjectesToFirestore(seedData.projectes as Projecte[]);
-        }
-
-        if (remote.equivalencies && remote.equivalencies.length > 0) {
-          setEquivalencies(remote.equivalencies);
-          localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(remote.equivalencies));
-        } else {
-          syncEquivalenciesToFirestore(seedData.equivalencies as Equivalencia[]);
-        }
-
-        if (remote.partides && remote.partides.length > 0) {
-          setPartides(remote.partides);
-          localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(remote.partides));
-        } else {
-          syncPartidesToFirestore(seedData.partidas as Partida[]);
-        }
-
-        if (remote.despeses && remote.despeses.length > 0) {
-          setDespeses(remote.despeses);
-          localStorage.setItem(STORAGE_KEYS.DESPESES, JSON.stringify(remote.despeses));
-        }
-
-        if (remote.imputacions && remote.imputacions.length > 0) {
-          setImputacions(remote.imputacions);
-          localStorage.setItem(STORAGE_KEYS.IMPUTACIONS, JSON.stringify(remote.imputacions));
-        }
-
-        if (remote.historial && remote.historial.length > 0) {
-          setHistorial(remote.historial);
-          localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(remote.historial));
-        }
-      }
-    }).catch(err => {
-      console.warn("Firestore background connect warning:", err);
-    });
   }, [activeExercici]);
 
-  // Save changes to localStorage & Cloud Firestore
-  const persistDespeses = (updated: Despesa[]) => {
-    setDespeses(updated);
-    localStorage.setItem(STORAGE_KEYS.DESPESES, JSON.stringify(updated));
-    syncDespesesToFirestore(activeExercici, updated);
+  // Live sync of the catalog and historial (shared across exercicis)
+  useEffect(() => {
+    if (!cloudEnabled) return;
+    const subscriptions = [
+      subscribeBucket<Projecte>(BUCKETS.projectes, (items, fromCache) => {
+        if (fromCache && items.length === 0) return;
+        setProjectes(items);
+        localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(items));
+      }, reportSyncError),
+      subscribeBucket<Partida>(BUCKETS.partides, (items, fromCache) => {
+        if (fromCache && items.length === 0) return;
+        setPartides(items);
+        localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(items));
+      }, reportSyncError),
+      subscribeBucket<Equivalencia>(BUCKETS.equivalencies, (items, fromCache) => {
+        if (fromCache && items.length === 0) return;
+        setEquivalencies(items);
+        localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(items));
+      }, reportSyncError),
+      subscribeBucket<LogEntry>(BUCKETS.historial, (items, fromCache) => {
+        if (fromCache && items.length === 0) return;
+        const sorted = sortHistorial(items);
+        setHistorial(sorted);
+        localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(sorted));
+      }, reportSyncError),
+    ];
+    return () => subscriptions.forEach(unsubscribe => unsubscribe());
+  }, [cloudEnabled]);
+
+  // Live sync of the active exercici. Unsubscribing on change discards late responses of the previous one.
+  useEffect(() => {
+    if (!cloudEnabled) return;
+    const subscriptions = [
+      subscribeBucket<Despesa>(BUCKETS.despeses(activeExercici), (items, fromCache) => {
+        if (fromCache && items.length === 0) return;
+        setDespeses(items);
+        localStorage.setItem(despesesKey(activeExercici), JSON.stringify(items));
+      }, reportSyncError),
+      subscribeBucket<Imputacio>(BUCKETS.imputacions(activeExercici), (items, fromCache) => {
+        if (fromCache && items.length === 0) return;
+        setImputacions(items);
+        localStorage.setItem(imputacionsKey(activeExercici), JSON.stringify(items));
+      }, reportSyncError),
+    ];
+    return () => subscriptions.forEach(unsubscribe => unsubscribe());
+  }, [cloudEnabled, activeExercici]);
+
+  /**
+   * Saves a new version of a list: whole list in localStorage, and in Firestore only the items
+   * that differ from what this user was looking at (`base`). Items another user added or changed
+   * in the meantime are left untouched.
+   */
+  const persistList = <T,>(
+    base: T[],
+    updated: T[],
+    key: (item: T) => string,
+    bucket: string,
+    localKey: string,
+    setter: (items: T[]) => void
+  ) => {
+    setter(updated);
+    localStorage.setItem(localKey, JSON.stringify(updated));
+    if (!cloudRef.current) return;
+    const { upserts, deletes } = diffById(base, updated, key);
+    if (upserts.length === 0 && deletes.length === 0) return;
+    writeBucketChanges(bucket, upserts, deletes, key).catch(reportSyncError);
   };
 
-  const persistImputacions = (updated: Imputacio[]) => {
-    setImputacions(updated);
-    localStorage.setItem(STORAGE_KEYS.IMPUTACIONS, JSON.stringify(updated));
-    syncImputacionsToFirestore(activeExercici, updated);
-  };
+  const persistDespeses = (updated: Despesa[]) =>
+    persistList(despeses, updated, KEYS.despeses, BUCKETS.despeses(activeExercici), despesesKey(activeExercici), setDespeses);
 
-  const persistProjectes = (updated: Projecte[]) => {
-    setProjectes(updated);
-    localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(updated));
-    syncProjectesToFirestore(updated);
-  };
+  const persistImputacions = (updated: Imputacio[]) =>
+    persistList(imputacions, updated, KEYS.imputacions, BUCKETS.imputacions(activeExercici), imputacionsKey(activeExercici), setImputacions);
 
-  const persistPartides = (updated: Partida[]) => {
-    setPartides(updated);
-    localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(updated));
-    syncPartidesToFirestore(updated);
-  };
+  const persistProjectes = (updated: Projecte[]) =>
+    persistList(projectes, updated, KEYS.projectes, BUCKETS.projectes, STORAGE_KEYS.PROJECTES, setProjectes);
 
-  const persistEquivalencies = (updated: Equivalencia[]) => {
-    setEquivalencies(updated);
-    localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(updated));
-    syncEquivalenciesToFirestore(updated);
-  };
+  const persistPartides = (updated: Partida[]) =>
+    persistList(partides, updated, KEYS.partides, BUCKETS.partides, STORAGE_KEYS.PARTIDES, setPartides);
 
-  const persistHistorial = (updated: LogEntry[]) => {
-    setHistorial(updated);
-    localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(updated));
-    syncHistorialToFirestore(updated);
-  };
+  const persistEquivalencies = (updated: Equivalencia[]) =>
+    persistList(equivalencies, updated, KEYS.equivalencies, BUCKETS.equivalencies, STORAGE_KEYS.EQUIVALENCIES, setEquivalencies);
+
+  const persistHistorial = (updated: LogEntry[]) =>
+    persistList(historial, updated, KEYS.historial, BUCKETS.historial, STORAGE_KEYS.HISTORIAL, setHistorial);
 
   // Helper to add log entry
   const recordLog = (
@@ -225,7 +339,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     detall: string,
     extra?: { despesa_id?: string; projecte_id?: string; comentaris?: string }
   ) => {
-    const userEmail = auth?.currentUser?.email || "secretaria@somllar.cat";
+    const userEmail = auth?.currentUser?.email || "Usuari no autenticat (mode proves)";
     const newEntry: LogEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       timestamp: new Date().toISOString(),
@@ -238,9 +352,80 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     setHistorial(prev => {
       const updated = [newEntry, ...prev];
       localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(updated));
-      syncHistorialToFirestore(updated);
       return updated;
     });
+    if (cloudRef.current) {
+      writeBucketChanges(BUCKETS.historial, [newEntry], [], KEYS.historial).catch(reportSyncError);
+    }
+  };
+
+  // Migration from schema v1 (one Firestore document per list) to v2 (one document per item)
+  const prepareMigration = async (): Promise<MigrationPlan> => {
+    const legacy = await fetchLegacyBuckets();
+
+    const exercicis = new Set<number>();
+    for (const bucket of legacy.keys()) {
+      const m = /^(?:despeses|imputacions)_(\d{4})$/.exec(bucket);
+      if (m) exercicis.add(Number(m[1]));
+    }
+    for (let i = 0; i < localStorage.length; i++) {
+      const m = /^somllar_(?:despeses|imputacions)_(\d{4})_v1$/.exec(localStorage.key(i) || "");
+      if (m) exercicis.add(Number(m[1]));
+    }
+
+    const plan: MigrationBucketPlan[] = [];
+    const add = <T,>(
+      bucket: string,
+      label: string,
+      local: T[] | null,
+      key: (item: T) => string,
+      preferLocal: boolean,
+      fallback?: T[]
+    ) => {
+      const remote = (legacy.get(bucket) as T[] | undefined) || null;
+      let items = preferLocal ? mergeForMigration(remote, local, key) : mergeForMigration(local, remote, key);
+      if (items.length === 0 && fallback) items = fallback;
+      const entry: MigrationBucketPlan = {
+        bucket,
+        label,
+        remoteCount: remote?.length || 0,
+        localCount: local?.length || 0,
+        resultCount: items.length,
+        preferencia: preferLocal ? "aquest navegador" : "núvol",
+        items,
+        key: key as (item: any) => string,
+      };
+      plan.push(entry);
+      return entry;
+    };
+
+    // Catalog: the old cloud copy was shared and small, so it wins over this browser
+    add<Projecte>(BUCKETS.projectes, "Projectes", readLocal(STORAGE_KEYS.PROJECTES), KEYS.projectes, false, seedData.projectes as Projecte[]);
+    add<Partida>(BUCKETS.partides, "Partides", readLocal(STORAGE_KEYS.PARTIDES), KEYS.partides, false, seedData.partidas as Partida[]);
+    add<Equivalencia>(BUCKETS.equivalencies, "Equivalències", readLocal(STORAGE_KEYS.EQUIVALENCIES), KEYS.equivalencies, false, seedData.equivalencies as Equivalencia[]);
+    add<LogEntry>(BUCKETS.historial, "Historial", readLocal(STORAGE_KEYS.HISTORIAL), KEYS.historial, false);
+
+    // Despeses didn't fit in one Firestore document (> 1 MiB), so this browser's copy wins
+    for (const ex of Array.from(exercicis).sort()) {
+      const imps = add<Imputacio>(BUCKETS.imputacions(ex), `Imputacions ${ex}`, readLocal(imputacionsKey(ex)), KEYS.imputacions, true);
+      const desp = add<Despesa>(BUCKETS.despeses(ex), `Despeses ${ex}`, readLocal(despesesKey(ex)), KEYS.despeses, true);
+      // Totals and state of each despesa must match its imputacions after the merge
+      desp.items = recalcDespesesFromImputacions(desp.items as Despesa[], imps.items as Imputacio[]);
+    }
+
+    return { buckets: plan };
+  };
+
+  const runMigration = async (plan: MigrationPlan) => {
+    if (!auth?.currentUser) {
+      throw new Error("Cal haver iniciat sessió amb Google per migrar les dades.");
+    }
+    await writeMigration(
+      plan.buckets.map(b => ({ bucket: b.bucket, items: b.items, key: b.key })),
+      auth.currentUser.email || auth.currentUser.uid
+    );
+    setSyncError(null);
+    setCloudStatus("synced");
   };
 
   // Import A3 File
@@ -252,11 +437,17 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     despeses.forEach(d => existingMap.set(d.id, d));
 
     const updatedList: Despesa[] = [];
+    const changedTotals = new Map<string, number>();
     for (const d of summary.despeses) {
       if (existingMap.has(d.id)) {
         const prev = existingMap.get(d.id)!;
+        if (Math.abs(prev.total_factura - d.total_factura) > 0.01) {
+          changedTotals.set(d.id, d.total_factura);
+        }
         updatedList.push({
           ...d,
+          // A partida assigned manually (or by account mapping) wins over the one resolved from A3
+          partida_id: prev.partida_id && prev.partida_id !== "SENSE_CORRESPONDENCIA" ? prev.partida_id : d.partida_id,
           estat: prev.estat,
           percentatge_total: prev.percentatge_total,
           import_total: prev.import_total,
@@ -272,13 +463,36 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       updatedList.push(remaining);
     }
 
+    // If A3 changed an invoice total, keep the percentages and recalculate the amounts
+    if (changedTotals.size > 0) {
+      const now = new Date().toISOString();
+      const updatedImputacions = imputacions.map(imp => {
+        const newTotal = changedTotals.get(imp.despesa_id);
+        if (newTotal === undefined) return imp;
+        return {
+          ...imp,
+          import: Math.round(((imp.percentatge / 100) * newTotal) * 100) / 100,
+          data_actualitzacio: now
+        };
+      });
+      for (let i = 0; i < updatedList.length; i++) {
+        const d = updatedList[i];
+        if (!changedTotals.has(d.id)) continue;
+        const importTotal = updatedImputacions
+          .filter(imp => imp.despesa_id === d.id)
+          .reduce((acc, imp) => acc + imp.import, 0);
+        updatedList[i] = { ...d, import_total: Math.round(importTotal * 100) / 100 };
+      }
+      persistImputacions(updatedImputacions);
+    }
+
     persistDespeses(updatedList);
 
     // Record log
     recordLog(
       "importacio_a3",
       `Volcat d'Excel d'A3 Processat`,
-      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} mantingudes, ${summary.facturesModificades} modificacions detectades a l'A3 i ${summary.senseCorrespondencia} pendents de correspondència.`
+      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} mantingudes, ${summary.facturesModificades} modificacions detectades a l'A3 (${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.`
     );
 
     return summary;
@@ -650,7 +864,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   // Export to Excel
   const exportToExcel = () => {
-    const buffer = exportJustificacionsExcel(despeses, imputacions, projectes, partides);
+    const buffer = exportJustificacionsExcel(despeses, imputacions, projectes, partides, activeExercici);
     const blob = new Blob([buffer as any], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -663,25 +877,15 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   };
 
   const clearAllData = () => {
-    localStorage.removeItem(STORAGE_KEYS.DESPESES);
-    localStorage.removeItem(STORAGE_KEYS.IMPUTACIONS);
-    setDespeses([]);
-    setImputacions([]);
-    syncDespesesToFirestore(activeExercici, []);
-    syncImputacionsToFirestore(activeExercici, []);
+    persistDespeses([]);
+    persistImputacions([]);
     recordLog("nota_manual", "Dades de Despeses Reiniciades", "S'han buidat les despeses i les imputacions carregades.");
   };
 
   const reloadSeedData = () => {
-    setPartides(seedData.partidas as Partida[]);
-    setEquivalencies(seedData.equivalencies as Equivalencia[]);
-    setProjectes(seedData.projectes as Projecte[]);
-    localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(seedData.partidas));
-    localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(seedData.equivalencies));
-    localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(seedData.projectes));
-    syncProjectesToFirestore(seedData.projectes as Projecte[]);
-    syncEquivalenciesToFirestore(seedData.equivalencies as Equivalencia[]);
-    syncPartidesToFirestore(seedData.partidas as Partida[]);
+    persistPartides(seedData.partidas as Partida[]);
+    persistEquivalencies(seedData.equivalencies as Equivalencia[]);
+    persistProjectes(seedData.projectes as Projecte[]);
     recordLog("nota_manual", "Catàleg Restaurat", "S'han restaurat les 49 partides, 323 equivalències i 44 projectes originals.");
   };
 
@@ -695,7 +899,12 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         equivalencies,
         historial,
         isLoading,
-        isCloudSynced,
+        isCloudSynced: cloudEnabled,
+        cloudStatus,
+        syncError,
+        clearSyncError: () => setSyncError(null),
+        prepareMigration,
+        runMigration,
         activeExercici,
         setActiveExercici,
         importA3File,

@@ -14,7 +14,18 @@ export function cleanStr(s: any): string {
 export function parseNum(val: any): number {
   if (val === null || val === undefined) return 0;
   if (typeof val === "number") return val;
-  const s = String(val).trim().replace(/\./g, "").replace(",", ".");
+  const raw = String(val).trim().replace(/[\s€]/g, "");
+  let s: string;
+  if (raw.includes(",")) {
+    // 1.234,56 -> 1234.56
+    s = raw.replace(/\./g, "").replace(",", ".");
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(raw)) {
+    // 1.234.567 -> thousands separators
+    s = raw.replace(/\./g, "");
+  } else {
+    // 1234.56 -> already a decimal point
+    s = raw;
+  }
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
 }
@@ -22,7 +33,11 @@ export function parseNum(val: any): number {
 export function formatDate(val: any): string {
   if (!val) return "";
   if (val instanceof Date) {
-    return val.toISOString().split("T")[0];
+    // Local components: toISOString() would shift dates at local midnight to the previous day
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, "0");
+    const d = String(val.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   }
   if (typeof val === "number") {
     // Excel serial date to JS Date
@@ -61,6 +76,80 @@ export interface WorkbookInspection {
     importTotal: number;
     partidaDetectada: string;
   }[];
+}
+
+function findHeaderRowIndex(rawRows: any[][]): number {
+  for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
+    const row = rawRows[i] || [];
+    const joined = row.map(c => cleanStr(c)).join(" ");
+    if (
+      joined.includes("compte") ||
+      joined.includes("cuenta") ||
+      joined.includes("factura") ||
+      joined.includes("proveidor") ||
+      joined.includes("proveedor")
+    ) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Maps each field to a column index (-1 if absent). Terms are tried in priority order, exact
+ * header matches before partial ones, and a column already taken by a previous field can't be
+ * reused (e.g. "Total Document A3" must not be read as the line total or the document number).
+ */
+function detectColumns(headers: string[]) {
+  const cleanHeaders = headers.map(h => cleanStr(h));
+  const claimed = new Set<number>();
+
+  const find = (terms: string[], claim = true): number => {
+    const cleanTerms = terms.map(t => cleanStr(t));
+    for (const t of cleanTerms) {
+      const c = cleanHeaders.findIndex((h, i) => !claimed.has(i) && h === t);
+      if (c !== -1) {
+        if (claim) claimed.add(c);
+        return c;
+      }
+    }
+    for (const t of cleanTerms) {
+      const c = cleanHeaders.findIndex((h, i) => !claimed.has(i) && h !== "" && h.includes(t));
+      if (c !== -1) {
+        if (claim) claimed.add(c);
+        return c;
+      }
+    }
+    return -1;
+  };
+
+  // Most specific fields first
+  const totalDocA3 = find(["totaldocumenta3", "totaldocumento", "totaldoc", "totalasiento"]);
+  const totalLinia = find(["importtotaldelinia", "importetotaldelinea", "totaldelinia", "totaldelinea", "importtotal", "importetotal", "costtotal", "total"]);
+  const base = find(["baseimposable", "baseimponible", "baseimp", "base"]);
+  const iva = find(["importiva", "importeiva", "iva"]);
+  const irpf = find(["importirpf", "importeirpf", "irpf", "retencio", "retencion"]);
+  const dataPag = find(["datapagament", "fechapago", "datapag", "fechavencimiento", "venciment", "fvencimiento", "pagament", "pago"]);
+  const data = find(["dataemissio", "datafactura", "fechaemision", "fechafactura", "fexpedicion", "femision", "data", "fecha"]);
+  const descCompte = find(["descripciocomptedespesa", "descripciocompte", "descripcioncuenta", "descripciocuenta", "nomcompte", "titulocuenta", "desccta"]);
+  const descLinia = find(["descripciolinia", "descripcionlinea", "concepte", "concepto", "descripcio", "descripcion", "texto", "linia", "linea"]);
+  const compte = find(["comptedespesa", "codicompte", "cuentagasto", "subcuenta", "subcta", "codcta", "compte", "cuenta", "cta"]);
+  const nif = find(["nifproveidor", "nifproveedor", "cifproveidor", "cifproveedor", "niftercero", "cif", "nif", "dni"]);
+  const prov = find(["proveidor", "proveedor", "nomproveidor", "nomproveedor", "nombreproveedor", "raosocial", "razonsocial", "emisor", "tercero"]);
+  const partidaDesti = find(["fulldesti", "fulladesti", "partidadesti", "partidapressupostaria", "partida", "desti", "destino"]);
+  const factura = find(["numfactura", "nfactura", "nrofactura", "numfra", "factura", "fra"]);
+  const docA3 = find(["documenta3", "ndoca3", "ndoc", "numdoc", "documento", "asiento", "numapunte", "apunte"]);
+  // Only a fallback for docA3: may point to the same column
+  const apunte = find(["numapunte", "apunte"], false);
+  const fin = find(["financador", "financiador", "entitat", "entidad"]);
+  const area = find(["area", "departament", "departamento", "seccion"]);
+  const proj = find(["projecte", "proyecto"]);
+  const pis = find(["pis", "piso", "immoble", "inmueble", "habitatge", "vivienda", "centre", "centro"]);
+
+  return {
+    totalDocA3, totalLinia, base, iva, irpf, dataPag, data, descCompte, descLinia, compte,
+    nif, prov, partidaDesti, factura, docA3, apunte, fin, area, proj, pis,
+  };
 }
 
 /**
@@ -120,7 +209,7 @@ export function inspectA3Workbook(
   fileBuffer: ArrayBuffer | Uint8Array,
   preferredSheetName?: string
 ): WorkbookInspection {
-  const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: false });
   const recommendedSheet = findBestSheet(workbook, preferredSheetName);
 
   const sheets: SheetInfo[] = workbook.SheetNames.map(name => {
@@ -138,41 +227,16 @@ export function inspectA3Workbook(
   const worksheet = workbook.Sheets[recommendedSheet];
   const rawRows: any[][] = worksheet ? XLSX.utils.sheet_to_json(worksheet, { header: 1 }) : [];
 
-  let headerRowIndex = 0;
-  for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
-    const row = rawRows[i] || [];
-    const joined = row.map(c => cleanStr(c)).join(" ");
-    if (
-      joined.includes("compte") ||
-      joined.includes("cuenta") ||
-      joined.includes("factura") ||
-      joined.includes("proveidor") ||
-      joined.includes("proveedor")
-    ) {
-      headerRowIndex = i;
-      break;
-    }
-  }
-
+  const headerRowIndex = findHeaderRowIndex(rawRows);
   const headers = (rawRows[headerRowIndex] || []).map(h => String(h || "").trim());
-
-  const getColIdx = (...terms: string[]) => {
-    for (let c = 0; c < headers.length; c++) {
-      const hClean = cleanStr(headers[c]);
-      for (const t of terms) {
-        if (hClean.includes(cleanStr(t))) return c;
-      }
-    }
-    return -1;
-  };
-
-  const colDocA3 = getColIdx("documenta3", "ndoc", "documento", "numdoc", "asiento", "numapunte", "apunte");
-  const colFactura = getColIdx("factura", "numfactura", "nfactura", "nrofactura", "fra");
-  const colProv = getColIdx("proveidor", "proveedor", "nomproveidor", "nomproveedor", "nombreproveedor", "raosocial", "razonsocial");
-  const colCompte = getColIdx("comptedespesa", "compte", "cuenta", "cuentagasto", "subcuenta", "subcta", "codicompte", "codcta", "cta");
-  const colDescCompte = getColIdx("descripciocomptedespesa", "descripciocompte", "descripcioncuenta", "descripciocuenta", "nomcompte", "titulocuenta", "desccta");
-  const colPartidaDesti = getColIdx("fulldesti", "fulladesti", "partidadesti", "partida", "partidapressupostaria", "desti", "destino");
-  const colTotalLinia = getColIdx("importtotaldelinia", "importetotaldelinea", "importtotal", "importetotal", "costtotal", "totaldelinia", "totaldelinea", "total");
+  const cols = detectColumns(headers);
+  const colDocA3 = cols.docA3;
+  const colFactura = cols.factura;
+  const colProv = cols.prov;
+  const colCompte = cols.compte;
+  const colDescCompte = cols.descCompte;
+  const colPartidaDesti = cols.partidaDesti;
+  const colTotalLinia = cols.totalLinia;
 
   const detectedColumns = [
     { camp: "Document A3 / Asiento", nomColumna: colDocA3 !== -1 ? headers[colDocA3] : "No trobat", trobada: colDocA3 !== -1 },
@@ -226,7 +290,7 @@ export function parseA3Excel(
   existingDespeses: Despesa[] = [],
   preferredSheetName?: string
 ): ImportSummary {
-  const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: false });
   
   const sheetName = findBestSheet(workbook, preferredSheetName);
   const worksheet = workbook.Sheets[sheetName];
@@ -240,54 +304,30 @@ export function parseA3Excel(
   }
 
   // Find header row (usually row 0 or row 1)
-  let headerRowIndex = 0;
-  for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
-    const row = rawRows[i] || [];
-    const joined = row.map(c => cleanStr(c)).join(" ");
-    if (
-      joined.includes("compte") ||
-      joined.includes("cuenta") ||
-      joined.includes("factura") ||
-      joined.includes("proveidor") ||
-      joined.includes("proveedor")
-    ) {
-      headerRowIndex = i;
-      break;
-    }
-  }
-
+  const headerRowIndex = findHeaderRowIndex(rawRows);
   const headers = (rawRows[headerRowIndex] || []).map(h => String(h || "").trim());
+  const cols = detectColumns(headers);
 
-  const getColIdx = (...terms: string[]) => {
-    for (let c = 0; c < headers.length; c++) {
-      const hClean = cleanStr(headers[c]);
-      for (const t of terms) {
-        if (hClean.includes(cleanStr(t))) return c;
-      }
-    }
-    return -1;
-  };
-
-  const colApunte = getColIdx("numapunte", "apunte");
-  const colFin = getColIdx("financador", "financiador", "entitat", "entidad");
-  const colArea = getColIdx("area", "departament", "departamento", "seccion");
-  const colProj = getColIdx("projecte", "proyecto");
-  const colPis = getColIdx("pis", "piso", "immoble", "inmueble", "habitatge", "vivienda", "centre", "centro");
-  const colProv = getColIdx("proveidor", "proveedor", "nomproveidor", "nomproveedor", "nombreproveedor", "raosocial", "razonsocial", "emisor", "tercero");
-  const colNif = getColIdx("nifproveidor", "nifproveedor", "cif", "nif", "cifproveidor", "cifproveedor", "niftercero", "dni");
-  const colDocA3 = getColIdx("documenta3", "ndoc", "documento", "numdoc", "asiento", "numapunte", "apunte");
-  const colFactura = getColIdx("factura", "numfactura", "nfactura", "nrofactura", "fra", "numfra");
-  const colData = getColIdx("data", "fecha", "dataemissio", "fechaemision", "fexpedicion", "femision");
-  const colDataPag = getColIdx("datapagament", "fechapago", "pagament", "pago", "fechavencimiento", "venciment", "fvencimiento");
-  const colCompte = getColIdx("comptedespesa", "compte", "cuenta", "cuentagasto", "subcuenta", "subcta", "codicompte", "codcta", "cta");
-  const colDescCompte = getColIdx("descripciocomptedespesa", "descripciocompte", "descripcioncuenta", "descripciocuenta", "nomcompte", "titulocuenta", "desccta", "descripcio");
-  const colPartidaDesti = getColIdx("fulldesti", "fulladesti", "partidadesti", "partida", "partidapressupostaria", "desti", "destino");
-  const colDescLinia = getColIdx("descripciolinia", "descripcionlinea", "linia", "linea", "concepte", "concepto", "descripcio", "descripcion", "texto");
-  const colBase = getColIdx("baseimposable", "baseimponible", "base", "baseimp");
-  const colIva = getColIdx("importiva", "importeiva", "iva");
-  const colIrpf = getColIdx("importirpf", "importeirpf", "irpf", "retencio", "retencion");
-  const colTotalLinia = getColIdx("importtotaldelinia", "importetotaldelinea", "importtotal", "importetotal", "costtotal", "totaldelinia", "totaldelinea", "total");
-  const colTotalDocA3 = getColIdx("totaldocumenta3", "totaldocumento", "totaldoc", "totalasiento");
+  const colApunte = cols.apunte;
+  const colFin = cols.fin;
+  const colArea = cols.area;
+  const colProj = cols.proj;
+  const colPis = cols.pis;
+  const colProv = cols.prov;
+  const colNif = cols.nif;
+  const colDocA3 = cols.docA3;
+  const colFactura = cols.factura;
+  const colData = cols.data;
+  const colDataPag = cols.dataPag;
+  const colCompte = cols.compte;
+  const colDescCompte = cols.descCompte;
+  const colPartidaDesti = cols.partidaDesti;
+  const colDescLinia = cols.descLinia;
+  const colBase = cols.base;
+  const colIva = cols.iva;
+  const colIrpf = cols.irpf;
+  const colTotalLinia = cols.totalLinia;
+  const colTotalDocA3 = cols.totalDocA3;
 
   // Diagnosis of detected columns
   const columnesDetectades = [
@@ -419,7 +459,8 @@ export function parseA3Excel(
     const baseVal = colBase !== -1 ? parseNum(row[colBase]) : 0;
     const ivaVal = colIva !== -1 ? parseNum(row[colIva]) : 0;
     const irpfVal = colIrpf !== -1 ? parseNum(row[colIrpf]) : 0;
-    const costVal = colTotalLinia !== -1 ? parseNum(row[colTotalLinia]) : (baseVal + ivaVal - irpfVal);
+    // IRPF is subtracted once, later: total factura = cost total - IRPF
+    const costVal = colTotalLinia !== -1 ? parseNum(row[colTotalLinia]) : (baseVal + ivaVal);
     const docTotalVal = colTotalDocA3 !== -1 ? parseNum(row[colTotalDocA3]) : 0;
 
     if (!groups[clave]) {
@@ -469,12 +510,16 @@ export function parseA3Excel(
     existingMap.set(d.id, d);
   }
 
+  const docKey = (ndoc: string, factura: string) => `${ndoc}||${factura}`;
+
   let facturesNoves = 0;
   let facturesExistents = 0;
   let facturesModificades = 0;
   let senseCorrespondencia = 0;
   const resultDespeses: Despesa[] = [];
 
+  // 1st pass: build despeses with a stable ID, unique within this import
+  const usedIds = new Set<string>();
   for (const clave of orderOfClaves) {
     const g = groups[clave];
     
@@ -489,33 +534,22 @@ export function parseA3Excel(
     const cifStr = Array.from(g.cifList).join(" + ");
     const conceptesStr = Array.from(g.conceptesList).join(" // ");
 
-    // Stable ID
-    const cleanId = `${g.docA3}_${facturasStr}_${g.partidaId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+    // Stable ID. Lines without invoice number of the same document would collide:
+    // the first keeps the historical ID and the following ones get a suffix.
+    const baseId = `${g.docA3}_${facturasStr}_${g.partidaId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+    let cleanId = baseId;
+    for (let n = 2; usedIds.has(cleanId); n++) {
+      cleanId = `${baseId}_${n}`;
+    }
+    usedIds.add(cleanId);
 
     if (g.partidaId === "SENSE_CORRESPONDENCIA") {
       senseCorrespondencia++;
     }
 
-    const existing = existingMap.get(cleanId);
-    let modificatA3 = false;
-
-    if (existing) {
-      facturesExistents++;
-      // Check if amounts changed in A3
-      if (
-        Math.abs(existing.total_factura - totalFactura) > 0.01 ||
-        Math.abs(existing.base_imposable - baseTotal) > 0.01
-      ) {
-        modificatA3 = true;
-        facturesModificades++;
-      }
-    } else {
-      facturesNoves++;
-    }
-
     const yearVal = g.dataEmissio ? parseInt(g.dataEmissio.split("-")[0]) : new Date().getFullYear();
 
-    const d: Despesa = {
+    resultDespeses.push({
       id: cleanId,
       numapunte: g.docA3,
       ndoc_a3: g.docA3,
@@ -538,14 +572,57 @@ export function parseA3Excel(
       cost_total: costTotal,
       total_factura: totalFactura,
       partida_id: g.partidaId,
-      modificat_a3: modificatA3,
+      modificat_a3: false,
       es_compartida: g.partidesVistes.size > 1,
-      estat: existing ? existing.estat : "pendent",
-      percentatge_total: existing ? existing.percentatge_total : 0,
-      import_total: existing ? existing.import_total : 0,
-    };
+      estat: "pendent",
+      percentatge_total: 0,
+      import_total: 0,
+    });
+  }
 
-    resultDespeses.push(d);
+  // 2nd pass: the ID contains the partida resolved at import time, so when an equivalence
+  // changes (e.g. SENSE_CORRESPONDENCIA -> DD_X) the same invoice gets a new ID. Relink it to
+  // the existing despesa when the match within the same document/invoice is unambiguous.
+  const matchedExistingIds = new Set(resultDespeses.filter(d => existingMap.has(d.id)).map(d => d.id));
+  const unmatchedExistingByDoc = new Map<string, Despesa[]>();
+  for (const d of existingDespeses) {
+    if (matchedExistingIds.has(d.id)) continue;
+    const k = docKey(d.ndoc_a3, d.factura);
+    unmatchedExistingByDoc.set(k, [...(unmatchedExistingByDoc.get(k) || []), d]);
+  }
+  const unmatchedParsedByDoc = new Map<string, Despesa[]>();
+  for (const d of resultDespeses) {
+    if (existingMap.has(d.id)) continue;
+    const k = docKey(d.ndoc_a3, d.factura);
+    unmatchedParsedByDoc.set(k, [...(unmatchedParsedByDoc.get(k) || []), d]);
+  }
+  for (const [k, parsedList] of unmatchedParsedByDoc.entries()) {
+    const existingList = unmatchedExistingByDoc.get(k);
+    if (parsedList.length === 1 && existingList && existingList.length === 1 && !usedIds.has(existingList[0].id)) {
+      parsedList[0].id = existingList[0].id;
+      usedIds.add(existingList[0].id);
+    }
+  }
+
+  // 3rd pass: compare with existing despeses
+  for (const d of resultDespeses) {
+    const existing = existingMap.get(d.id);
+    if (existing) {
+      facturesExistents++;
+      // Check if amounts changed in A3
+      if (
+        Math.abs(existing.total_factura - d.total_factura) > 0.01 ||
+        Math.abs(existing.base_imposable - d.base_imposable) > 0.01
+      ) {
+        d.modificat_a3 = true;
+        facturesModificades++;
+      }
+      d.estat = existing.estat;
+      d.percentatge_total = existing.percentatge_total;
+      d.import_total = existing.import_total;
+    } else {
+      facturesNoves++;
+    }
   }
 
   const comptesSenseCorrespondencia = Array.from(unmappedAccountsTracker.entries())

@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Draft: compare it with the rules currently published before replacing them
+// (Firebase Console > Firestore Database > Rules). It must allow the same accounts as
+// ALLOWED_DOMAINS / ALLOWED_EMAILS in lib/auth.tsx.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAllowedUser() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email.lower().matches('.*@(somllar[.]cat|prohabitatge[.]org)$')
+          || request.auth.token.email.lower() in ['litofortuna@gmail.com', 'secretariadq@gmail.com']
+        );
+    }
+
+    // Schema v1 (justificacions_somllar/{llista}) and v2 (justificacions_somllar/{llista}/items/{id})
+    match /justificacions_somllar/{document=**} {
+      allow read, write: if isAllowedUser();
+    }
+
+    // Anything else is closed
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

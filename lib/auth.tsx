@@ -26,6 +26,11 @@ const AuthContext = createContext<AuthContextType | null>(null);
 const ALLOWED_DOMAINS = ["somllar.cat", "prohabitatge.org"];
 const ALLOWED_EMAILS = ["litofortuna@gmail.com", "secretariadq@gmail.com"];
 
+// El mode proves no passa per Firebase Auth: només s'activa en desenvolupament local
+// o si s'habilita explícitament amb NEXT_PUBLIC_ENABLE_DEMO_LOGIN=true.
+const DEMO_LOGIN_ENABLED =
+  process.env.NODE_ENV === "development" || process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true";
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -34,7 +39,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Check local session for demo user
     const savedDemo = localStorage.getItem("somllar_auth_demo");
-    if (savedDemo) {
+    if (savedDemo && !DEMO_LOGIN_ENABLED) {
+      localStorage.removeItem("somllar_auth_demo");
+    } else if (savedDemo) {
       try {
         setUser(JSON.parse(savedDemo));
         setLoading(false);
@@ -99,7 +106,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (err.code === "auth/operation-not-allowed" || err.code === "auth/configuration-not-found") {
         setError(
-          "El proveïdor d'inici de sessió de Google s'ha d'activar a la Consola de Firebase (Authentication > Sign-in method > Google). Pots utilitzar el botó de 'Mode Proves' a continuació mentre s'activa."
+          "El proveïdor d'inici de sessió de Google s'ha d'activar a la Consola de Firebase (Authentication > Sign-in method > Google)." +
+            (DEMO_LOGIN_ENABLED ? " Pots utilitzar el botó de 'Mode Proves' a continuació mentre s'activa." : "")
         );
       } else {
         setError(err.message || "S'ha produït un error en iniciar la sessió.");
@@ -108,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginAsDemo = () => {
+    if (!DEMO_LOGIN_ENABLED) return;
     const demoUser = {
       uid: "demo_somllar_user",
       email: "secretaria@somllar.cat",
@@ -174,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ) : !user ? (
         <LoginPage 
           onLogin={loginWithGoogle} 
-          onLoginDemo={loginAsDemo}
+          onLoginDemo={DEMO_LOGIN_ENABLED ? loginAsDemo : undefined}
           error={error} 
           onClearError={clearError} 
         />
@@ -201,7 +210,7 @@ function LoginPage({
   onClearError 
 }: { 
   onLogin: () => void; 
-  onLoginDemo: () => void;
+  onLoginDemo?: () => void;
   error: string | null; 
   onClearError: () => void; 
 }) {
@@ -272,6 +281,7 @@ function LoginPage({
             <span>Iniciar sessió amb compte @somllar.cat</span>
           </button>
 
+          {onLoginDemo && (
           <button
             onClick={onLoginDemo}
             className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-medium text-xs border border-emerald-200 transition-colors"
@@ -279,6 +289,7 @@ function LoginPage({
             <UserCheck className="w-4 h-4 text-emerald-600" />
             <span>Accedir amb compte autoritzat de prova (secretaria@somllar.cat)</span>
           </button>
+          )}
         </div>
 
         {/* Footer info */}

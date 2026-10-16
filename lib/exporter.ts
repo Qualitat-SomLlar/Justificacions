@@ -1,11 +1,52 @@
 import * as XLSX from "xlsx";
 import { Despesa, Imputacio, Projecte, Partida } from "./types";
 
+const BASE_HEADERS = [
+  "NUM. APUNTE",
+  "NDOC_A3",
+  "FINANÇADOR",
+  "ÀREA",
+  "PROJECTE",
+  "CODI ANALÍTIC PIS",
+  "CODI ANALITIC",
+  "COMPTE DESPESA",
+  "PIS",
+  "DESCRIPCIÓ COMPTE DESPESA a3",
+  "DESCRIPCIÓ DESPESA",
+  "PROVEÏDOR",
+  "CIF",
+  "FACTURA",
+  "DATA EMISSIÓ FRA",
+  "DATA PAG.",
+  "DESCRIPCIÓ LÍNIA",
+  "ANY",
+  "BASE IMPOSABLE",
+  "IVA",
+  "IRPF",
+  "COST TOTAL",
+  "TOTAL FACTURA",
+  "TOTAL COBERT",
+  "TOTAL DISPONIBLE"
+];
+
+// Excel sheet names: max 31 chars, no : \ / ? * [ ] and unique (case-insensitive)
+function uniqueSheetName(raw: string, used: Set<string>): string {
+  const base = (raw.replace(/[:\\/?*\[\]]/g, "_").trim() || "Partida").slice(0, 31);
+  let name = base;
+  for (let n = 2; used.has(name.toLowerCase()); n++) {
+    const suffix = ` (${n})`;
+    name = base.slice(0, 31 - suffix.length) + suffix;
+  }
+  used.add(name.toLowerCase());
+  return name;
+}
+
 export function exportJustificacionsExcel(
   despeses: Despesa[],
   imputacions: Imputacio[],
   projectes: Projecte[],
-  partides: Partida[]
+  partides: Partida[],
+  exercici: number
 ): Uint8Array {
   const wb = XLSX.utils.book_new();
 
@@ -18,8 +59,10 @@ export function exportJustificacionsExcel(
     imputacionsMap.get(imp.despesa_id)!.set(imp.projecte_id, imp);
   }
 
-  // Filter active projects
-  const activeProjects = projectes.filter(p => p.actiu);
+  // Active projects, plus closed ones that still have imputations (otherwise TOTAL COBERT
+  // would include amounts with no project column)
+  const imputedProjectIds = new Set(imputacions.filter(imp => imp.percentatge > 0 || imp.import > 0).map(imp => imp.projecte_id));
+  const activeProjects = projectes.filter(p => p.actiu || imputedProjectIds.has(p.id));
 
   // Group despeses by Partida
   const despesesByPartida = new Map<string, Despesa[]>();
@@ -34,7 +77,7 @@ export function exportJustificacionsExcel(
   // 1. Resum Global Sheet
   const resumData: any[][] = [
     ["RESUM GENERAL DE JUSTIFICACIONS - SOM LLAR", "", "", "", ""],
-    ["Exercici:", new Date().getFullYear(), "", "Data generació:", new Date().toLocaleDateString("ca-ES")],
+    ["Exercici:", exercici, "", "Data generació:", new Date().toLocaleDateString("ca-ES")],
     [],
     ["Partida", "Descripció Partida", "Num. Despeses", "Cost Total (€)", "Total Factura (€)", "Total Cobert (€)", "Total Disponible (€)", "Estat"]
   ];
@@ -89,23 +132,25 @@ export function exportJustificacionsExcel(
   ]);
 
   const wsResum = XLSX.utils.aoa_to_sheet(resumData);
-  XLSX.utils.book_append_sheet(wb, wsResum, "Resum Panel");
+  const usedSheetNames = new Set<string>();
+  XLSX.utils.book_append_sheet(wb, wsResum, uniqueSheetName("Resum Panel", usedSheetNames));
 
   // 2. Sheets per Partida
   for (const [partidaId, list] of despesesByPartida.entries()) {
     if (list.length === 0) continue;
 
-    // Excel sheet name max 31 chars
-    const safeSheetName = partidaId.slice(0, 31);
+    const safeSheetName = uniqueSheetName(partidaId, usedSheetNames);
     const sheetRows: any[][] = [];
+    // Project columns start right after the base columns in every header row
+    const padding = () => new Array(BASE_HEADERS.length).fill("");
 
     // Header Row 1: Empty
     sheetRows.push([]);
 
     // Header Row 2: Centre Cost
-    const row2: any[] = new Array(24).fill("");
-    row2[24] = "TOTAL COBERT";
-    row2[25] = "TOTAL DISPONIBLE";
+    const row2: any[] = padding();
+    row2[BASE_HEADERS.length - 2] = "TOTAL COBERT";
+    row2[BASE_HEADERS.length - 1] = "TOTAL DISPONIBLE";
     activeProjects.forEach(p => {
       row2.push(`CC: ${p.financador}/${p.area}/${p.codi}`);
       row2.push("");
@@ -113,7 +158,7 @@ export function exportJustificacionsExcel(
     sheetRows.push(row2);
 
     // Header Row 3: Finançador
-    const row3: any[] = new Array(24).fill("");
+    const row3: any[] = padding();
     activeProjects.forEach(p => {
       row3.push(p.financador || "-");
       row3.push("");
@@ -121,7 +166,7 @@ export function exportJustificacionsExcel(
     sheetRows.push(row3);
 
     // Header Row 4: Àrea
-    const row4: any[] = new Array(24).fill("");
+    const row4: any[] = padding();
     activeProjects.forEach(p => {
       row4.push(p.area || "-");
       row4.push("");
@@ -129,15 +174,15 @@ export function exportJustificacionsExcel(
     sheetRows.push(row4);
 
     // Header Row 5: Projecte
-    const row5: any[] = new Array(24).fill("");
+    const row5: any[] = padding();
     activeProjects.forEach(p => {
-      row5.push(p.codi);
+      row5.push(p.actiu ? p.codi : `${p.codi} (TANCAT)`);
       row5.push("");
     });
     sheetRows.push(row5);
 
     // Header Row 6: Dates
-    const row6: any[] = new Array(24).fill("");
+    const row6: any[] = padding();
     activeProjects.forEach(p => {
       row6.push(p.dates_text || "");
       row6.push("");
@@ -145,33 +190,7 @@ export function exportJustificacionsExcel(
     sheetRows.push(row6);
 
     // Header Row 7: Base Column Headers
-    const row7: any[] = [
-      "NUM. APUNTE",
-      "NDOC_A3",
-      "FINANÇADOR",
-      "ÀREA",
-      "PROJECTE",
-      "CODI ANALÍTIC PIS",
-      "CODI ANALITIC",
-      "COMPTE DESPESA",
-      "PIS",
-      "DESCRIPCIÓ COMPTE DESPESA a3",
-      "DESCRIPCIÓ DESPESA",
-      "PROVEÏDOR",
-      "CIF",
-      "FACTURA",
-      "DATA EMISSIÓ FRA",
-      "DATA PAG.",
-      "DESCRIPCIÓ LÍNIA",
-      "ANY",
-      "BASE IMPOSABLE",
-      "IVA",
-      "IRPF",
-      "COST TOTAL",
-      "TOTAL FACTURA",
-      "TOTAL COBERT",
-      "TOTAL DISPONIBLE"
-    ];
+    const row7: any[] = [...BASE_HEADERS];
 
     activeProjects.forEach(p => {
       row7.push(`% ${p.codi}`);

@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, Auth } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyDO8KG4Ps6Es073rtc1emggR5q4XKx-2ck",
@@ -16,13 +16,13 @@ let app: FirebaseApp;
 let auth: Auth;
 let db: Firestore;
 
-if (typeof window !== "undefined") {
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-} else {
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  auth = getAuth(app);
+app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+auth = getAuth(app);
+try {
+  // Optional fields (e.g. comentaris) may be undefined; without this option Firestore rejects the write
+  db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+} catch {
+  // Already initialised (hot reload)
   db = getFirestore(app);
 }
 

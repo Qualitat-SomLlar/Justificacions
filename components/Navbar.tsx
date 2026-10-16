@@ -17,17 +17,21 @@ import {
   History,
   LogOut,
   User as UserIcon,
-  FolderTree
+  FolderTree,
+  CloudOff,
+  X
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import ImportModal from "./ImportModal";
+import MigrationModal from "./MigrationModal";
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { despeses, activeExercici, setActiveExercici, exportToExcel } = useJustificacions();
+  const { despeses, activeExercici, setActiveExercici, exportToExcel, cloudStatus, syncError, clearSyncError } = useJustificacions();
   const { user, logout } = useAuth();
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isMigrationOpen, setIsMigrationOpen] = useState(false);
 
   const pendingCount = despeses.filter(d => d.estat === "pendent").length;
   const alertCount = despeses.filter(d => d.estat === "excedida" || d.modificat_a3).length;
@@ -176,7 +180,44 @@ export default function Navbar() {
             );
           })}
         </div>
+        {/* Sync status */}
+        {cloudStatus === "migration_pending" && (
+          <div className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 flex flex-wrap items-center justify-center gap-2">
+            <CloudOff className="w-4 h-4 flex-shrink-0" />
+            <span>
+              Les dades del núvol encara tenen el format antic. Fins que no es migrin, els canvis només es guarden en aquest navegador.
+            </span>
+            <button
+              onClick={() => setIsMigrationOpen(true)}
+              className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+            >
+              Revisar i migrar
+            </button>
+          </div>
+        )}
+        {cloudStatus === "local" && (
+          <div className="border-t border-slate-200 bg-slate-50 px-4 py-1.5 text-xs text-slate-600 flex items-center justify-center gap-2">
+            <CloudOff className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Mode local: sense sessió de Firebase, les dades només es guarden en aquest navegador.</span>
+          </div>
+        )}
+        {syncError && (
+          <div className="border-t border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-800 flex items-center justify-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              {syncError}
+              {cloudStatus === "error" && " Els canvis d'aquesta sessió només es guarden en aquest navegador: recarrega la pàgina quan tornis a tenir connexió."}
+            </span>
+            {cloudStatus !== "error" && (
+              <button onClick={clearSyncError} className="p-1 rounded hover:bg-rose-100" title="Amagar">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
       </header>
+
+      {isMigrationOpen && <MigrationModal onClose={() => setIsMigrationOpen(false)} />}
 
       {/* Import Modal */}
       {isImportOpen && <ImportModal onClose={() => setIsImportOpen(false)} />}
