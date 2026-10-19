@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { 
   FolderTree, 
@@ -75,10 +75,55 @@ export default function PartidesPage() {
     return map;
   }, [despeses]);
 
+  // Factures sense partida (SENSE_CORRESPONDENCIA) o amb una partida que no existeix al catàleg
+  const orphanStats = useMemo(() => {
+    const catalogIds = new Set(partides.map(p => p.id));
+    let count = 0;
+    let total = 0;
+    let senseCount = 0;
+    const unknownCodes = new Set<string>();
+    partidaStatsMap.forEach((entry, pId) => {
+      if (catalogIds.has(pId)) return;
+      count += entry.count;
+      total += entry.total;
+      if (pId === "SENSE_CORRESPONDENCIA") senseCount += entry.count;
+      else unknownCodes.add(pId);
+    });
+    return { count, total, senseCount, unknownCodes: Array.from(unknownCodes).sort() };
+  }, [partides, partidaStatsMap]);
+
+  const grandTotal = useMemo(() => {
+    let total = 0;
+    partidaStatsMap.forEach(entry => { total += entry.total; });
+    return total;
+  }, [partidaStatsMap]);
+
+  // Escape tanca els modals
+  useEffect(() => {
+    if (!isModalOpen && !baixaConfirmModal) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (baixaConfirmModal) setBaixaConfirmModal(null);
+      else setIsModalOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isModalOpen, baixaConfirmModal]);
+
   // KPIs
   const totalCount = partides.length;
   const activesCount = partides.filter(p => p.activa !== false).length;
   const baixaCount = partides.filter(p => p.activa === false).length;
+
+  // Vista prèvia del codi final (mateixa normalització que addPartida del store)
+  const codiPreview = useMemo(() => {
+    const raw = codiInput.toUpperCase().trim().replace(/\s+/g, " ").replace(/[^\p{L}\p{N} ._-]/gu, "_");
+    if (!raw || raw === "DD_") return "";
+    return raw.startsWith("DD_") ? raw : `DD_${raw}`;
+  }, [codiInput]);
+
+  const ariaSort = (field: SortField): React.AriaAttributes["aria-sort"] =>
+    sortField === field ? (sortOrder === "asc" ? "ascending" : "descending") : "none";
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -127,18 +172,21 @@ export default function PartidesPage() {
         {
           ...editingPartida,
           nom: nomInput.trim() || editingPartida.codi,
-          activa: activaInput,
+          // Only sent when changed in the form: someone else may have changed it meanwhile
+          activa: activaInput !== (editingPartida.activa !== false) ? activaInput : undefined,
         },
         comentariInput.trim() || undefined
       );
     } else {
-      addPartida(
+      const ok = addPartida(
         {
           codi: codiInput.trim().toUpperCase(),
-          nom: nomInput.trim() || codiInput.trim().toUpperCase(),
+          nom: nomInput.trim() || codiPreview || codiInput.trim().toUpperCase(),
         },
         comentariInput.trim() || undefined
       );
+      // Si el codi ja existeix o és buit, el store ja avisa: mantenim el modal obert i el text escrit
+      if (!ok) return;
     }
 
     setIsModalOpen(false);
@@ -152,7 +200,7 @@ export default function PartidesPage() {
 
   const handleConfirmToggleBaixa = () => {
     if (!baixaConfirmModal) return;
-    toggleBaixaPartida(baixaConfirmModal.partida.id, baixaComentari.trim() || undefined);
+    toggleBaixaPartida(baixaConfirmModal.partida.id, baixaComentari.trim() || undefined, baixaConfirmModal.willActivate);
     setBaixaConfirmModal(null);
   };
 
@@ -330,55 +378,60 @@ export default function PartidesPage() {
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
-                <th
-                  onClick={() => handleSort("codi")}
-                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                  title="Ordenar per codi"
-                >
-                  <div className="flex items-center">
+                <th className="p-0" aria-sort={ariaSort("codi")}>
+                  <button
+                    type="button"
+                    onClick={() => handleSort("codi")}
+                    title="Ordenar per codi"
+                    className="w-full py-3.5 px-4 flex items-center  uppercase tracking-wider font-semibold hover:bg-slate-100 transition-colors select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+                  >
                     <span>Codi Partida</span>
                     {renderSortIcon("codi")}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  onClick={() => handleSort("nom")}
-                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                  title="Ordenar per nom o descripció"
-                >
-                  <div className="flex items-center">
+                <th className="p-0" aria-sort={ariaSort("nom")}>
+                  <button
+                    type="button"
+                    onClick={() => handleSort("nom")}
+                    title="Ordenar per nom o descripció"
+                    className="w-full py-3.5 px-4 flex items-center  uppercase tracking-wider font-semibold hover:bg-slate-100 transition-colors select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+                  >
                     <span>Nom / Concepte Pressupostari</span>
                     {renderSortIcon("nom")}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  onClick={() => handleSort("facturesCount")}
-                  className="py-3.5 px-4 text-center cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                  title="Ordenar per nombre de factures associades"
-                >
-                  <div className="flex items-center justify-center">
+                <th className="p-0 text-center" aria-sort={ariaSort("facturesCount")}>
+                  <button
+                    type="button"
+                    onClick={() => handleSort("facturesCount")}
+                    title="Ordenar per nombre de factures associades"
+                    className="w-full py-3.5 px-4 flex items-center justify-center uppercase tracking-wider font-semibold hover:bg-slate-100 transition-colors select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+                  >
                     <span>Factures</span>
                     {renderSortIcon("facturesCount")}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  onClick={() => handleSort("totalImport")}
-                  className="py-3.5 px-4 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                  title="Ordenar per import total facturat"
-                >
-                  <div className="flex items-center justify-end">
+                <th className="p-0 text-right" aria-sort={ariaSort("totalImport")}>
+                  <button
+                    type="button"
+                    onClick={() => handleSort("totalImport")}
+                    title="Ordenar per import total facturat"
+                    className="w-full py-3.5 px-4 flex items-center justify-end uppercase tracking-wider font-semibold hover:bg-slate-100 transition-colors select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+                  >
                     <span>Total Facturat</span>
                     {renderSortIcon("totalImport")}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  onClick={() => handleSort("activa")}
-                  className="py-3.5 px-4 text-center cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                  title="Ordenar per estat"
-                >
-                  <div className="flex items-center justify-center">
+                <th className="p-0 text-center" aria-sort={ariaSort("activa")}>
+                  <button
+                    type="button"
+                    onClick={() => handleSort("activa")}
+                    title="Ordenar per estat"
+                    className="w-full py-3.5 px-4 flex items-center justify-center uppercase tracking-wider font-semibold hover:bg-slate-100 transition-colors select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+                  >
                     <span>Estat</span>
                     {renderSortIcon("activa")}
-                  </div>
+                  </button>
                 </th>
                 <th className="py-3.5 px-4 text-right">Accions</th>
               </tr>
@@ -421,8 +474,8 @@ export default function PartidesPage() {
 
                     {/* Total facturat */}
                     <td className="py-3 px-4 text-right font-bold text-slate-900">
-                      {stats.total > 0 ? (
-                        <span>{stats.total.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      {stats.total !== 0 ? (
+                        <span className={stats.total < 0 ? "text-rose-600" : undefined}>{stats.total.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                       ) : (
                         <span className="text-slate-400 text-xs font-normal">0,00 €</span>
                       )}
@@ -453,11 +506,13 @@ export default function PartidesPage() {
                     <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
                       {/* Editar */}
                       <button
+                        type="button"
                         onClick={() => openEditModal(partida)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
                         title="Modificar dades de la partida"
+                        aria-label={`Modificar la partida ${partida.codi}`}
                       >
-                        <Edit className="w-4 h-4" />
+                        <Edit className="w-4 h-4" aria-hidden="true" />
                       </button>
 
                       {/* Donar de Baixa o Reactivar */}
@@ -491,12 +546,72 @@ export default function PartidesPage() {
                     <FolderTree className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-sm">No s'ha trobat cap partida de despesa</p>
                     <p className="text-xs text-slate-400 mt-1">
-                      {searchTerm ? "Prova de canviar el text de cerca o el filtre d'estat." : "Fes clic a 'Nova Partida' per crear-ne una."}
+                      {searchTerm || filterEstat !== "totes"
+                        ? "Prova de canviar el text de cerca o el filtre d'estat."
+                        : "Fes clic a 'Nova Partida' per crear-ne una."}
                     </p>
                   </td>
                 </tr>
               )}
+
+              {/* Factures sense partida o amb partida fora del catàleg (perquè la suma quadri amb el panell) */}
+              {orphanStats.count > 0 && !searchTerm && filterEstat === "totes" && (
+                <tr className="bg-rose-50/40 border-t-2 border-rose-100">
+                  <td className="py-3 px-4 font-bold text-rose-800">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-500" aria-hidden="true" />
+                      <span>Sense partida / partida desconeguda</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-xs text-slate-600 max-w-md">
+                    {orphanStats.senseCount > 0 && (
+                      <span className="block">{orphanStats.senseCount} factures sense correspondència</span>
+                    )}
+                    {orphanStats.unknownCodes.length > 0 && (
+                      <span className="block truncate" title={orphanStats.unknownCodes.join(", ")}>
+                        Codis fora del catàleg: {orphanStats.unknownCodes.join(", ")}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-center font-semibold text-slate-700">
+                    <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-xs font-bold">
+                      {orphanStats.count}
+                    </span>
+                  </td>
+                  <td className={`py-3 px-4 text-right font-bold ${orphanStats.total < 0 ? "text-rose-600" : "text-slate-900"}`}>
+                    {orphanStats.total.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200/50">
+                      Per revisar
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-right whitespace-nowrap">
+                    <Link
+                      href="/matriu"
+                      className="inline-flex items-center space-x-1 text-xs font-semibold text-rose-700 hover:underline"
+                    >
+                      <span>Veure a la matriu</span>
+                      <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    </Link>
+                  </td>
+                </tr>
+              )}
             </tbody>
+            {!searchTerm && filterEstat === "totes" && despeses.length > 0 && (
+              <tfoot>
+                <tr className="bg-slate-50/80 border-t border-slate-200 text-slate-700 font-bold">
+                  <td className="py-3 px-4 text-xs uppercase tracking-wider" colSpan={2}>
+                    Total (totes les factures)
+                  </td>
+                  <td className="py-3 px-4 text-center">{despeses.length}</td>
+                  <td className={`py-3 px-4 text-right ${grandTotal < 0 ? "text-rose-600" : "text-slate-900"}`}>
+                    {grandTotal.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
@@ -504,17 +619,19 @@ export default function PartidesPage() {
       {/* Modal Add / Edit Partida */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div role="dialog" aria-modal="true" aria-labelledby="partida-modal-title" className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-              <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <h3 id="partida-modal-title" className="text-base font-bold text-slate-900 flex items-center space-x-2">
                 <FolderTree className="w-4 h-4 text-emerald-600" />
                 <span>{editingPartida ? "Modificar Partida" : "Nova Partida de Despesa"}</span>
               </h3>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
+                aria-label="Tancar"
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
 
@@ -528,15 +645,26 @@ export default function PartidesPage() {
                   required
                   disabled={!!editingPartida}
                   value={codiInput}
-                  onChange={(e) => setCodiInput(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "_"))}
+                  onChange={(e) => setCodiInput(e.target.value.toUpperCase())}
+                  aria-describedby="codi-partida-help"
                   placeholder="ex: DD_LLOGUERS_EQUIPS"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50 disabled:bg-slate-100 disabled:text-slate-500"
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p id="codi-partida-help" className="text-[11px] text-slate-400 mt-1">
                   {editingPartida 
                     ? "El codi identificador no es pot modificar per protegir les referències comptables." 
                     : "S'afegirà el prefix DD_ automàticament si no s'introdueix."}
                 </p>
+                {!editingPartida && (
+                  <p className="text-[11px] mt-1" aria-live="polite">
+                    <span className="text-slate-500">Codi final: </span>
+                    {codiPreview ? (
+                      <code className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-mono font-bold">{codiPreview}</code>
+                    ) : (
+                      <span className="text-slate-400 italic">(introdueix un codi)</span>
+                    )}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -620,7 +748,7 @@ export default function PartidesPage() {
       {/* Modal Confirmació Donar de Baixa / Reactivar */}
       {baixaConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div role="dialog" aria-modal="true" aria-labelledby="baixa-modal-title" className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-6 space-y-4">
               <div className="flex items-start space-x-3">
                 <div className={`p-2.5 rounded-xl ${
@@ -633,7 +761,7 @@ export default function PartidesPage() {
                   )}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 id="baixa-modal-title" className="text-base font-bold text-slate-900">
                     {baixaConfirmModal.willActivate 
                       ? `Reactivar la partida ${baixaConfirmModal.partida.codi}?`
                       : `Donar de baixa la partida ${baixaConfirmModal.partida.codi}?`}

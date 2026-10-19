@@ -1,27 +1,39 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Despesa, Imputacio, Projecte, Partida, Equivalencia, ImportSummary, LogEntry } from "./types";
-import { parseA3Excel } from "./parser";
+import { parseA3Excel, cleanStr } from "./parser";
 import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
 import { auth, db } from "./firebase";
+import { useAuth } from "./auth";
 import {
   BUCKETS,
+  BucketChanges,
   SCHEMA_VERSION,
-  fetchSchemaVersion,
-  fetchLegacyBuckets,
+  acquireMigrationLock,
+  fetchSchemaMeta,
+  fetchV1Buckets,
+  fetchV2Buckets,
   subscribeBucket,
-  writeBucketChanges,
+  subscribeSchemaMeta,
+  writeChanges,
   writeMigration
 } from "./firestore_sync";
-import { diffById, mergeForMigration, recalcDespesesFromImputacions } from "./sync_utils";
+import {
+  countMissing,
+  diffItems,
+  estatFromPercent,
+  hasChanges,
+  percentCents,
+  pickMigrationSource
+} from "./sync_utils";
 
 /**
- * - checking: reading the schema version from Firestore
+ * - checking: waiting for the Firebase session and the schema version
  * - local: no Firebase session (e.g. mode proves); data only in this browser
- * - migration_pending: Firestore still has the old format; data only in this browser until migrated
- * - synced: live sync, one Firestore document per item
+ * - migration_pending: Firestore still has an older format; data only in this browser until migrated
+ * - synced: live sync with Firestore
  * - error: Firestore couldn't be reached; data only in this browser
  */
 export type CloudStatus = "checking" | "local" | "migration_pending" | "synced" | "error";
@@ -32,12 +44,15 @@ export interface MigrationBucketPlan {
   remoteCount: number;
   localCount: number;
   resultCount: number;
-  preferencia: "núvol" | "aquest navegador";
+  /** Items present only in the copy that is not used (they won't be migrated) */
+  descartats: number;
+  preferencia: "núvol" | "aquest navegador" | "cap" | "unió";
   items: any[];
   key: (item: any) => string;
 }
 
 export interface MigrationPlan {
+  fromVersion: number;
   buckets: MigrationBucketPlan[];
 }
 
@@ -67,12 +82,14 @@ interface JustificacionsContextType {
   bulkImputar: (despesaIds: string[], allocations: { projecte_id: string; percentatge: number }[], comentaris?: string) => void;
   bulkResetImputacions: (despesaIds: string[], comentaris?: string) => void;
   bulkDeleteDespeses: (despesaIds: string[], comentaris?: string) => void;
-  addProjecte: (p: Omit<Projecte, "id">) => void;
+  addProjecte: (p: Omit<Projecte, "id">) => boolean;
   updateProjecte: (p: Projecte) => void;
   deleteProjecte: (id: string) => void;
-  addPartida: (p: { codi: string; nom: string }, comentaris?: string) => void;
+  setProjecteActiu: (id: string, actiu: boolean) => void;
+  addPartida: (p: { codi: string; nom: string }, comentaris?: string) => boolean;
   updatePartida: (p: Partida, comentaris?: string) => void;
-  toggleBaixaPartida: (id: string, comentaris?: string) => void;
+  /** `activa`: the state the user asked for (instead of toggling a possibly stale one) */
+  toggleBaixaPartida: (id: string, comentaris?: string, activa?: boolean) => void;
   addEquivalencia: (eq: Equivalencia) => void;
   updateEquivalencia: (eq: Equivalencia) => void;
   deleteEquivalencia: (compte: string) => void;
@@ -85,6 +102,15 @@ interface JustificacionsContextType {
   reloadSeedData: () => void;
 }
 
+/** A despesa as stored: estat / percentatge_total / import_total are computed from the imputacions. */
+type StoredDespesa = Omit<Despesa, "estat" | "percentatge_total" | "import_total">;
+
+const stripDerived = (d: Despesa | StoredDespesa): StoredDespesa => {
+  const { estat, percentatge_total, import_total, ...rest } = d as Despesa;
+  void estat; void percentatge_total; void import_total;
+  return rest;
+};
+
 // Despeses i imputacions es guarden per exercici; el catàleg és compartit entre exercicis.
 const LEGACY_EXERCICI = 2026;
 const LEGACY_KEYS = {
@@ -94,22 +120,6 @@ const LEGACY_KEYS = {
 const despesesKey = (exercici: number) => `somllar_despeses_${exercici}_v1`;
 const imputacionsKey = (exercici: number) => `somllar_imputacions_${exercici}_v1`;
 
-// Les dades anteriors a la separació per exercici sempre s'havien carregat com a 2026
-function migrateLegacyExerciciKeys() {
-  const pairs: [string, string][] = [
-    [LEGACY_KEYS.DESPESES, despesesKey(LEGACY_EXERCICI)],
-    [LEGACY_KEYS.IMPUTACIONS, imputacionsKey(LEGACY_EXERCICI)],
-  ];
-  for (const [legacyKey, newKey] of pairs) {
-    const legacy = localStorage.getItem(legacyKey);
-    if (legacy === null) continue;
-    if (localStorage.getItem(newKey) === null) {
-      localStorage.setItem(newKey, legacy);
-    }
-    localStorage.removeItem(legacyKey);
-  }
-}
-
 const STORAGE_KEYS = {
   PROJECTES: "somllar_projectes_v1",
   PARTIDES: "somllar_partides_v1",
@@ -117,9 +127,61 @@ const STORAGE_KEYS = {
   HISTORIAL: "somllar_historial_v1",
 };
 
-// Identity of each item, used as Firestore document ID
+/** localStorage can be full (~5 MB) or blocked: never let that break an action. */
+let storageWarned = false;
+function safeSetItem(key: string, value: unknown, onFull?: (msg: string) => void) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn("localStorage:", e);
+    if (!storageWarned && onFull) {
+      storageWarned = true;
+      onFull("L'emmagatzematge local del navegador és ple o no està disponible: els canvis d'aquesta sessió podrien no conservar-se en aquest navegador.");
+    }
+  }
+}
+
+/** Reads a list from localStorage; corrupt or non-array values are ignored (and kept aside). */
+function readLocal<T>(key: string): T[] | null {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as T[];
+    throw new Error("not an array");
+  } catch (e) {
+    console.warn(`localStorage: valor no vàlid a ${key}`, e);
+    try {
+      if (raw !== null) localStorage.setItem(`${key}_corrupte`, raw);
+    } catch { /* ignore */ }
+    return null;
+  }
+}
+
+// Les dades anteriors a la separació per exercici sempre s'havien carregat com a 2026
+function migrateLegacyExerciciKeys() {
+  try {
+    const pairs: [string, string][] = [
+      [LEGACY_KEYS.DESPESES, despesesKey(LEGACY_EXERCICI)],
+      [LEGACY_KEYS.IMPUTACIONS, imputacionsKey(LEGACY_EXERCICI)],
+    ];
+    for (const [legacyKey, newKey] of pairs) {
+      const legacy = localStorage.getItem(legacyKey);
+      if (legacy === null) continue;
+      if (localStorage.getItem(newKey) === null) {
+        localStorage.setItem(newKey, legacy);
+      }
+      localStorage.removeItem(legacyKey);
+    }
+  } catch (e) {
+    console.warn("localStorage:", e);
+  }
+}
+
+// Identity of each item
 const KEYS = {
-  despeses: (d: Despesa) => d.id,
+  despeses: (d: { id: string }) => d.id,
   imputacions: (i: Imputacio) => i.id,
   projectes: (p: Projecte) => p.id,
   partides: (p: Partida) => p.id,
@@ -127,9 +189,15 @@ const KEYS = {
   historial: (l: LogEntry) => l.id,
 };
 
-const readLocal = <T,>(key: string): T[] | null => {
-  const raw = localStorage.getItem(key);
-  return raw ? (JSON.parse(raw) as T[]) : null;
+// Complete items only (see subscribeBucket)
+const isText = (v: unknown) => typeof v === "string" && v !== "";
+const VALID = {
+  despeses: (d: any) => isText(d.id) && typeof d.total_factura === "number",
+  imputacions: (i: any) => isText(i.id) && isText(i.despesa_id) && isText(i.projecte_id) && typeof i.percentatge === "number",
+  projectes: (p: any) => isText(p.id) && isText(p.codi),
+  partides: (p: any) => isText(p.id) && isText(p.codi),
+  equivalencies: (e: any) => isText(e.compte),
+  historial: (l: any) => isText(l.id) && isText(l.timestamp) && isText(l.titol),
 };
 
 const sortHistorial = (items: LogEntry[]) =>
@@ -139,259 +207,362 @@ function describeFirestoreError(e: any): string {
   if (e?.code === "permission-denied") {
     return "Firestore ha denegat l'accés (permission-denied). Revisa les regles de seguretat i que hagis iniciat sessió amb un compte autoritzat.";
   }
+  if (e?.code === "resource-exhausted") {
+    return "S'ha superat la quota diària de Firestore (pla gratuït). Torna-ho a provar demà o amplia el pla.";
+  }
   if (e?.code === "unavailable") {
-    return "No hi ha connexió amb Firestore. Els canvis es guarden en aquest navegador i s'enviaran quan torni la connexió.";
+    return "No hi ha connexió amb Firestore.";
   }
   return `Error de sincronització amb Firestore: ${e?.message || e}`;
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
 const JustificacionsContext = createContext<JustificacionsContextType | null>(null);
 
 export function JustificacionsProvider({ children }: { children: React.ReactNode }) {
-  const [despeses, setDespeses] = useState<Despesa[]>([]);
+  const { user } = useAuth();
+
+  const [storedDespeses, setStoredDespeses] = useState<StoredDespesa[]>([]);
   const [imputacions, setImputacions] = useState<Imputacio[]>([]);
   const [projectes, setProjectes] = useState<Projecte[]>([]);
   const [partides, setPartides] = useState<Partida[]>([]);
   const [equivalencies, setEquivalencies] = useState<Equivalencia[]>([]);
   const [historial, setHistorial] = useState<LogEntry[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  // Exercici whose despeses/imputacions are in memory (null while loading)
+  const [loadedExercici, setLoadedExercici] = useState<number | null>(null);
   const [cloudStatus, setCloudStatus] = useState<CloudStatus>("checking");
   const [syncError, setSyncError] = useState<string | null>(null);
   const [activeExercici, setActiveExercici] = useState<number>(2026);
 
-  // Firestore writes only happen once the data is in the new format (schema v2)
+  // Firestore writes only happen once the data is in the current format
   const cloudEnabled = cloudStatus === "synced";
   const cloudRef = useRef(false);
   cloudRef.current = cloudEnabled;
+  const wasSyncedRef = useRef(false);
+  if (cloudEnabled) wasSyncedRef.current = true;
+  // Without the cloud (old format pending migration, or Firestore failing) any change would be
+  // lost when the sync comes back: the app is read-only. Only the local mode (no Firebase) edits.
+  const readOnly = cloudStatus === "migration_pending" || cloudStatus === "error";
+  const readOnlyRef = useRef(false);
+  readOnlyRef.current = readOnly;
+  const lastReadOnlyAlert = useRef(0);
+  const refuseIfReadOnly = (): boolean => {
+    if (!readOnlyRef.current) return false;
+    if (Date.now() - lastReadOnlyAlert.current > 1500) {
+      lastReadOnlyAlert.current = Date.now();
+      alert(
+        cloudStatus === "migration_pending"
+          ? "Les dades del núvol encara tenen el format antic: cal fer la migració («Revisar i migrar») abans de poder fer canvis."
+          : "No hi ha connexió amb el núvol: l'aplicació és només de consulta fins que es resolgui. Recarrega la pàgina."
+      );
+    }
+    return true;
+  };
+
+  const historialRef = useRef<LogEntry[]>([]);
+  historialRef.current = historial;
 
   const reportSyncError = (e: any) => {
     console.warn("Firestore:", e);
     setSyncError(describeFirestoreError(e));
   };
+  const warnStorage = (msg: string) => setSyncError(msg);
+  // A listener refused by Firestore (permissions, quota): fall back to this browser's data
+  const listenerFailed = (e: any) => {
+    reportSyncError(e);
+    setCloudStatus("error");
+  };
 
-  // Initialize catalog and historial from localStorage (shared across exercicis)
-  useEffect(() => {
-    try {
-      migrateLegacyExerciciKeys();
-
-      const storedPartides = localStorage.getItem(STORAGE_KEYS.PARTIDES);
-      if (storedPartides) {
-        setPartides(JSON.parse(storedPartides));
-      } else {
-        setPartides(seedData.partidas as Partida[]);
-        localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(seedData.partidas));
-      }
-
-      const storedEquivalencies = localStorage.getItem(STORAGE_KEYS.EQUIVALENCIES);
-      if (storedEquivalencies) {
-        setEquivalencies(JSON.parse(storedEquivalencies));
-      } else {
-        setEquivalencies(seedData.equivalencies as Equivalencia[]);
-        localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(seedData.equivalencies));
-      }
-
-      const storedProjectes = localStorage.getItem(STORAGE_KEYS.PROJECTES);
-      if (storedProjectes) {
-        setProjectes(JSON.parse(storedProjectes));
-      } else {
-        setProjectes(seedData.projectes as Projecte[]);
-        localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(seedData.projectes));
-      }
-
-      const storedHistorial = localStorage.getItem(STORAGE_KEYS.HISTORIAL);
-      if (storedHistorial) {
-        setHistorial(JSON.parse(storedHistorial));
-      } else {
-        const initialLog: LogEntry = {
-          id: `log_init`,
-          timestamp: new Date().toISOString(),
-          tipus: "nota_manual",
-          titol: "Sistema Inicialitzat",
-          detall: "Catàleg carregat amb 49 partides directes, 323 equivalències de comptes i 44 projectes actius.",
-          usuari: "Sistema Som Llar",
-          comentaris: "Benvinguts al sistema de gestió i control de justificacions de Som Llar."
-        };
-        setHistorial([initialLog]);
-        localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify([initialLog]));
-      }
-    } catch (e) {
-      console.error("Error al carregar de localStorage:", e);
+  // Despeses with estat / percentatge_total / import_total computed from the imputacions.
+  // `storedOf` maps each computed despesa back to its stored object (to detect unchanged items).
+  const { despeses, storedOf } = useMemo(() => {
+    const totals = new Map<string, { pct: number; imp: number }>();
+    for (const imp of imputacions) {
+      const t = totals.get(imp.despesa_id) || { pct: 0, imp: 0 };
+      t.pct += imp.percentatge || 0;
+      t.imp += imp.import || 0;
+      totals.set(imp.despesa_id, t);
     }
+    const back = new WeakMap<Despesa, StoredDespesa>();
+    const view = storedDespeses.map(sd => {
+      const t = totals.get(sd.id);
+      const pct = t ? round2(t.pct) : 0;
+      const d: Despesa = { ...sd, percentatge_total: pct, import_total: t ? round2(t.imp) : 0, estat: estatFromPercent(pct) };
+      back.set(d, sd);
+      return d;
+    });
+    return { despeses: view, storedOf: back };
+  }, [storedDespeses, imputacions]);
 
-    // Decide the sync mode. Without a Firebase session (mode proves) Firestore is never touched.
-    if (!db || !auth?.currentUser) {
+  // 1. Catalog and historial from this browser (shared across exercicis)
+  useEffect(() => {
+    migrateLegacyExerciciKeys();
+    setPartides(readLocal<Partida>(STORAGE_KEYS.PARTIDES) || (seedData.partidas as Partida[]));
+    setEquivalencies(readLocal<Equivalencia>(STORAGE_KEYS.EQUIVALENCIES) || (seedData.equivalencies as Equivalencia[]));
+    setProjectes(readLocal<Projecte>(STORAGE_KEYS.PROJECTES) || (seedData.projectes as Projecte[]));
+    const storedHistorial = readLocal<LogEntry>(STORAGE_KEYS.HISTORIAL);
+    if (storedHistorial) {
+      setHistorial(storedHistorial);
+    } else {
+      setHistorial([{
+        id: `log_init`,
+        timestamp: new Date().toISOString(),
+        tipus: "nota_manual",
+        titol: "Sistema Inicialitzat",
+        detall: `Catàleg carregat amb ${seedData.partidas.length} partides, ${seedData.equivalencies.length} equivalències de comptes i ${seedData.projectes.length} projectes.`,
+        usuari: "Sistema Som Llar",
+        comentaris: "Benvinguts al sistema de gestió i control de justificacions de Som Llar."
+      }]);
+    }
+    setCatalogLoaded(true);
+  }, []);
+
+  // 2. Sync mode: decided once Firebase has restored (or not) the session. Mode proves never
+  // touches Firestore, even if the browser also has a real Firebase session.
+  useEffect(() => {
+    let cancelled = false;
+    const isDemo = !user || user.providerId === "demo";
+    if (!db || !auth || isDemo) {
       setCloudStatus("local");
       return;
     }
-    fetchSchemaVersion()
-      .then(version => setCloudStatus(version >= SCHEMA_VERSION ? "synced" : "migration_pending"))
-      .catch(e => {
+    (async () => {
+      try {
+        await auth.authStateReady();
+        if (cancelled) return;
+        if (!auth.currentUser) {
+          setCloudStatus("local");
+          return;
+        }
+        const meta = await fetchSchemaMeta();
+        if (cancelled) return;
+        setCloudStatus(meta.version >= SCHEMA_VERSION ? "synced" : "migration_pending");
+      } catch (e) {
+        if (cancelled) return;
         reportSyncError(e);
         setCloudStatus("error");
-      });
-  }, []);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
-  // Load the active exercici's despeses/imputacions from this browser
+  // While the migration is pending, switch to live sync as soon as someone completes it
   useEffect(() => {
-    try {
-      migrateLegacyExerciciKeys();
-      setDespeses(readLocal<Despesa>(despesesKey(activeExercici)) || []);
-      setImputacions(readLocal<Imputacio>(imputacionsKey(activeExercici)) || []);
-    } catch (e) {
-      console.error("Error al carregar de localStorage:", e);
-      setDespeses([]);
-      setImputacions([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeExercici]);
+    if (cloudStatus !== "migration_pending") return;
+    return subscribeSchemaMeta(meta => {
+      if (meta.version >= SCHEMA_VERSION) setCloudStatus("synced");
+    }, reportSyncError);
+  }, [cloudStatus]);
 
-  // Live sync of the catalog and historial (shared across exercicis)
+  // 3a. Local modes: despeses/imputacions of the active exercici from this browser
+  useEffect(() => {
+    if (cloudStatus === "checking" || cloudStatus === "synced") return;
+    // After a cloud session failed, the last cloud data stays (the local copy is older)
+    if (wasSyncedRef.current && loadedExercici === activeExercici) return;
+    migrateLegacyExerciciKeys();
+    setStoredDespeses((readLocal<Despesa>(despesesKey(activeExercici)) || []).map(stripDerived));
+    setImputacions(readLocal<Imputacio>(imputacionsKey(activeExercici)) || []);
+    setLoadedExercici(activeExercici);
+  }, [activeExercici, cloudStatus]);
+
+  // 3b. Live sync of the catalog and historial
   useEffect(() => {
     if (!cloudEnabled) return;
     const subscriptions = [
-      subscribeBucket<Projecte>(BUCKETS.projectes, (items, fromCache) => {
-        if (fromCache && items.length === 0) return;
+      subscribeBucket<Projecte>(BUCKETS.projectes, VALID.projectes, (items) => {
         setProjectes(items);
-        localStorage.setItem(STORAGE_KEYS.PROJECTES, JSON.stringify(items));
-      }, reportSyncError),
-      subscribeBucket<Partida>(BUCKETS.partides, (items, fromCache) => {
-        if (fromCache && items.length === 0) return;
+        safeSetItem(STORAGE_KEYS.PROJECTES, items);
+      }, listenerFailed),
+      subscribeBucket<Partida>(BUCKETS.partides, VALID.partides, (items) => {
         setPartides(items);
-        localStorage.setItem(STORAGE_KEYS.PARTIDES, JSON.stringify(items));
-      }, reportSyncError),
-      subscribeBucket<Equivalencia>(BUCKETS.equivalencies, (items, fromCache) => {
-        if (fromCache && items.length === 0) return;
+        safeSetItem(STORAGE_KEYS.PARTIDES, items);
+      }, listenerFailed),
+      subscribeBucket<Equivalencia>(BUCKETS.equivalencies, VALID.equivalencies, (items) => {
         setEquivalencies(items);
-        localStorage.setItem(STORAGE_KEYS.EQUIVALENCIES, JSON.stringify(items));
-      }, reportSyncError),
-      subscribeBucket<LogEntry>(BUCKETS.historial, (items, fromCache) => {
-        if (fromCache && items.length === 0) return;
-        const sorted = sortHistorial(items);
-        setHistorial(sorted);
-        localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(sorted));
-      }, reportSyncError),
+        safeSetItem(STORAGE_KEYS.EQUIVALENCIES, items);
+      }, listenerFailed),
+      // The historial lives in the Firestore cache (IndexedDB), not in localStorage
+      subscribeBucket<LogEntry>(BUCKETS.historial, VALID.historial, (items) => setHistorial(sortHistorial(items)), listenerFailed),
     ];
     return () => subscriptions.forEach(unsubscribe => unsubscribe());
   }, [cloudEnabled]);
 
-  // Live sync of the active exercici. Unsubscribing on change discards late responses of the previous one.
+  // 3c. Live sync of the active exercici. Unsubscribing on change discards the previous one.
   useEffect(() => {
     if (!cloudEnabled) return;
+    setLoadedExercici(null);
+    // "server": data confirmed by the server; "cache": only the browser cache so far
+    let despesesFrom: "none" | "cache" | "server" = "none";
+    let imputacionsFrom: "none" | "cache" | "server" = "none";
+    let acceptCache = false;
+    const markLoaded = () => {
+      const ready = (from: string) => from === "server" || (acceptCache && from === "cache");
+      if (ready(despesesFrom) && ready(imputacionsFrom)) setLoadedExercici(activeExercici);
+    };
+    // Offline: after a few seconds work with the cached data (changes are queued and sent later)
+    const offlineTimer = setTimeout(() => {
+      acceptCache = true;
+      markLoaded();
+    }, 8000);
     const subscriptions = [
-      subscribeBucket<Despesa>(BUCKETS.despeses(activeExercici), (items, fromCache) => {
-        if (fromCache && items.length === 0) return;
-        setDespeses(items);
-        localStorage.setItem(despesesKey(activeExercici), JSON.stringify(items));
-      }, reportSyncError),
-      subscribeBucket<Imputacio>(BUCKETS.imputacions(activeExercici), (items, fromCache) => {
-        if (fromCache && items.length === 0) return;
+      subscribeBucket<Despesa>(BUCKETS.despeses(activeExercici), VALID.despeses, (items, fromCache) => {
+        setStoredDespeses(items.map(stripDerived));
+        if (despesesFrom !== "server") despesesFrom = fromCache ? "cache" : "server";
+        markLoaded();
+      }, listenerFailed),
+      subscribeBucket<Imputacio>(BUCKETS.imputacions(activeExercici), VALID.imputacions, (items, fromCache) => {
         setImputacions(items);
-        localStorage.setItem(imputacionsKey(activeExercici), JSON.stringify(items));
-      }, reportSyncError),
+        if (imputacionsFrom !== "server") imputacionsFrom = fromCache ? "cache" : "server";
+        markLoaded();
+      }, listenerFailed),
     ];
-    return () => subscriptions.forEach(unsubscribe => unsubscribe());
+    return () => {
+      clearTimeout(offlineTimer);
+      subscriptions.forEach(unsubscribe => unsubscribe());
+    };
   }, [cloudEnabled, activeExercici]);
 
+  // Nothing is shown (and no action can run) until the data of the active exercici is loaded:
+  // acting on stale data would overwrite newer changes.
+  const isLoading = !catalogLoaded || cloudStatus === "checking" || loadedExercici !== activeExercici;
+
   /**
-   * Saves a new version of a list: whole list in localStorage, and in Firestore only the items
-   * that differ from what this user was looking at (`base`). Items another user added or changed
-   * in the meantime are left untouched.
+   * Saves new versions of one or more lists in a single step: state, localStorage (only when
+   * there's no cloud sync) and, in Firestore, only the items/fields that differ from what this
+   * user was looking at. Items another user added or changed in the meantime are left untouched.
    */
-  const persistList = <T,>(
-    base: T[],
-    updated: T[],
-    key: (item: T) => string,
-    bucket: string,
-    localKey: string,
-    setter: (items: T[]) => void
-  ) => {
-    setter(updated);
-    localStorage.setItem(localKey, JSON.stringify(updated));
-    if (!cloudRef.current) return;
-    const { upserts, deletes } = diffById(base, updated, key);
-    if (upserts.length === 0 && deletes.length === 0) return;
-    writeBucketChanges(bucket, upserts, deletes, key).catch(reportSyncError);
+  const commit = (next: {
+    despeses?: Despesa[];
+    imputacions?: Imputacio[];
+    projectes?: Projecte[];
+    partides?: Partida[];
+    equivalencies?: Equivalencia[];
+  }) => {
+    if (refuseIfReadOnly()) return;
+    const changes: BucketChanges[] = [];
+    const local = !cloudRef.current;
+
+    if (next.despeses) {
+      const updated = next.despeses.map(d => storedOf.get(d) ?? stripDerived(d));
+      changes.push({ bucket: BUCKETS.despeses(activeExercici), changes: diffItems(storedDespeses, updated, KEYS.despeses), key: KEYS.despeses });
+      setStoredDespeses(updated);
+      if (local) safeSetItem(despesesKey(activeExercici), updated, warnStorage);
+    }
+    if (next.imputacions) {
+      changes.push({ bucket: BUCKETS.imputacions(activeExercici), changes: diffItems(imputacions, next.imputacions, KEYS.imputacions), key: KEYS.imputacions });
+      setImputacions(next.imputacions);
+      if (local) safeSetItem(imputacionsKey(activeExercici), next.imputacions, warnStorage);
+    }
+    if (next.projectes) {
+      changes.push({ bucket: BUCKETS.projectes, changes: diffItems(projectes, next.projectes, KEYS.projectes), key: KEYS.projectes });
+      setProjectes(next.projectes);
+      safeSetItem(STORAGE_KEYS.PROJECTES, next.projectes, warnStorage);
+    }
+    if (next.partides) {
+      changes.push({ bucket: BUCKETS.partides, changes: diffItems(partides, next.partides, KEYS.partides), key: KEYS.partides });
+      setPartides(next.partides);
+      safeSetItem(STORAGE_KEYS.PARTIDES, next.partides, warnStorage);
+    }
+    if (next.equivalencies) {
+      changes.push({ bucket: BUCKETS.equivalencies, changes: diffItems(equivalencies, next.equivalencies, KEYS.equivalencies), key: KEYS.equivalencies });
+      setEquivalencies(next.equivalencies);
+      safeSetItem(STORAGE_KEYS.EQUIVALENCIES, next.equivalencies, warnStorage);
+    }
+
+    if (local) return;
+    const pending = changes.filter(c => hasChanges(c.changes));
+    if (pending.length > 0) writeChanges(pending).catch(reportSyncError);
   };
 
-  const persistDespeses = (updated: Despesa[]) =>
-    persistList(despeses, updated, KEYS.despeses, BUCKETS.despeses(activeExercici), despesesKey(activeExercici), setDespeses);
+  const currentUserEmail = () => auth?.currentUser?.email || "Usuari no autenticat (mode proves)";
 
-  const persistImputacions = (updated: Imputacio[]) =>
-    persistList(imputacions, updated, KEYS.imputacions, BUCKETS.imputacions(activeExercici), imputacionsKey(activeExercici), setImputacions);
+  // Historial entries are only added (or removed one by one): written individually
+  const commitHistorial = (updated: LogEntry[]) => {
+    if (refuseIfReadOnly()) return;
+    const base = historialRef.current;
+    historialRef.current = updated;
+    setHistorial(updated);
+    if (!cloudRef.current) {
+      safeSetItem(STORAGE_KEYS.HISTORIAL, updated, warnStorage);
+      return;
+    }
+    const changes = diffItems(base, updated, KEYS.historial);
+    if (hasChanges(changes)) {
+      writeChanges([{ bucket: BUCKETS.historial, changes, key: KEYS.historial }]).catch(reportSyncError);
+    }
+  };
 
-  const persistProjectes = (updated: Projecte[]) =>
-    persistList(projectes, updated, KEYS.projectes, BUCKETS.projectes, STORAGE_KEYS.PROJECTES, setProjectes);
-
-  const persistPartides = (updated: Partida[]) =>
-    persistList(partides, updated, KEYS.partides, BUCKETS.partides, STORAGE_KEYS.PARTIDES, setPartides);
-
-  const persistEquivalencies = (updated: Equivalencia[]) =>
-    persistList(equivalencies, updated, KEYS.equivalencies, BUCKETS.equivalencies, STORAGE_KEYS.EQUIVALENCIES, setEquivalencies);
-
-  const persistHistorial = (updated: LogEntry[]) =>
-    persistList(historial, updated, KEYS.historial, BUCKETS.historial, STORAGE_KEYS.HISTORIAL, setHistorial);
-
-  // Helper to add log entry
   const recordLog = (
     tipus: LogEntry["tipus"],
     titol: string,
     detall: string,
     extra?: { despesa_id?: string; projecte_id?: string; comentaris?: string }
   ) => {
-    const userEmail = auth?.currentUser?.email || "Usuari no autenticat (mode proves)";
     const newEntry: LogEntry = {
-      id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       timestamp: new Date().toISOString(),
       tipus,
       titol,
       detall,
-      usuari: userEmail,
+      usuari: currentUserEmail(),
       ...extra,
     };
-    setHistorial(prev => {
-      const updated = [newEntry, ...prev];
-      localStorage.setItem(STORAGE_KEYS.HISTORIAL, JSON.stringify(updated));
-      return updated;
-    });
-    if (cloudRef.current) {
-      writeBucketChanges(BUCKETS.historial, [newEntry], [], KEYS.historial).catch(reportSyncError);
-    }
+    commitHistorial([newEntry, ...historialRef.current]);
   };
 
-  // Migration from schema v1 (one Firestore document per list) to v2 (one document per item)
+  // Migration from schema v1 (one document per list) or v2 (one document per item) to v3
   const prepareMigration = async (): Promise<MigrationPlan> => {
-    const legacy = await fetchLegacyBuckets();
+    const meta = await fetchSchemaMeta();
+    if (meta.version >= SCHEMA_VERSION) {
+      throw new Error("Les dades ja estan migrades al format actual. Recarrega la pàgina.");
+    }
+    const v1 = await fetchV1Buckets();
+    const v2 = meta.version === 2 ? await fetchV2Buckets(meta.buckets) : new Map<string, any[]>();
+    // In v2 the per-item collections were the live copy (even if emptied on purpose)
+    const remoteOf = <T,>(bucket: string): T[] | null => {
+      if (v2.has(bucket)) return v2.get(bucket) as T[];
+      return (v1.get(bucket) as T[] | undefined) || null;
+    };
 
     const exercicis = new Set<number>();
-    for (const bucket of legacy.keys()) {
+    for (const bucket of [...v1.keys(), ...v2.keys()]) {
       const m = /^(?:despeses|imputacions)_(\d{4})$/.exec(bucket);
       if (m) exercicis.add(Number(m[1]));
     }
-    for (let i = 0; i < localStorage.length; i++) {
-      const m = /^somllar_(?:despeses|imputacions)_(\d{4})_v1$/.exec(localStorage.key(i) || "");
-      if (m) exercicis.add(Number(m[1]));
-    }
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const m = /^somllar_(?:despeses|imputacions)_(\d{4})_v1$/.exec(localStorage.key(i) || "");
+        if (m) exercicis.add(Number(m[1]));
+      }
+    } catch { /* localStorage unavailable */ }
 
     const plan: MigrationBucketPlan[] = [];
-    const add = <T,>(
-      bucket: string,
-      label: string,
-      local: T[] | null,
-      key: (item: T) => string,
-      preferLocal: boolean,
-      fallback?: T[]
-    ) => {
-      const remote = (legacy.get(bucket) as T[] | undefined) || null;
-      let items = preferLocal ? mergeForMigration(remote, local, key) : mergeForMigration(local, remote, key);
-      if (items.length === 0 && fallback) items = fallback;
+    /** One copy, never a union (a union would bring back items deleted in the other copy). */
+    const pick = <T,>(bucket: string, label: string, local: T[] | null, key: (item: T) => string, preferRemote: boolean, fallback?: T[]) => {
+      const remote = remoteOf<T>(bucket);
+      // pickMigrationSource prefers its second argument
+      const chosen = preferRemote ? pickMigrationSource(local, remote) : pickMigrationSource(remote, local);
+      let items = chosen.items;
+      const fromRemote = items === remote;
+      let preferencia: MigrationBucketPlan["preferencia"] = items.length === 0 ? "cap" : fromRemote ? "núvol" : "aquest navegador";
+      if (items.length === 0 && fallback) {
+        items = fallback;
+        preferencia = "cap";
+      }
+      const other = fromRemote ? local : remote;
       const entry: MigrationBucketPlan = {
         bucket,
         label,
         remoteCount: remote?.length || 0,
         localCount: local?.length || 0,
         resultCount: items.length,
-        preferencia: preferLocal ? "aquest navegador" : "núvol",
+        descartats: countMissing(items, other, key),
+        preferencia,
         items,
         key: key as (item: any) => string,
       };
@@ -399,30 +570,65 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       return entry;
     };
 
-    // Catalog: the old cloud copy was shared and small, so it wins over this browser
-    add<Projecte>(BUCKETS.projectes, "Projectes", readLocal(STORAGE_KEYS.PROJECTES), KEYS.projectes, false, seedData.projectes as Projecte[]);
-    add<Partida>(BUCKETS.partides, "Partides", readLocal(STORAGE_KEYS.PARTIDES), KEYS.partides, false, seedData.partidas as Partida[]);
-    add<Equivalencia>(BUCKETS.equivalencies, "Equivalències", readLocal(STORAGE_KEYS.EQUIVALENCIES), KEYS.equivalencies, false, seedData.equivalencies as Equivalencia[]);
-    add<LogEntry>(BUCKETS.historial, "Historial", readLocal(STORAGE_KEYS.HISTORIAL), KEYS.historial, false);
+    // Catalog: the cloud copy was the shared one
+    pick<Projecte>(BUCKETS.projectes, "Projectes", readLocal(STORAGE_KEYS.PROJECTES), KEYS.projectes, true, seedData.projectes as Projecte[]);
+    pick<Partida>(BUCKETS.partides, "Partides", readLocal(STORAGE_KEYS.PARTIDES), KEYS.partides, true, seedData.partidas as Partida[]);
+    pick<Equivalencia>(BUCKETS.equivalencies, "Equivalències", readLocal(STORAGE_KEYS.EQUIVALENCIES), KEYS.equivalencies, true, seedData.equivalencies as Equivalencia[]);
 
-    // Despeses didn't fit in one Firestore document (> 1 MiB), so this browser's copy wins
+    // Historial only grows: the union of both copies loses nothing
+    const remoteHist = remoteOf<LogEntry>(BUCKETS.historial) || [];
+    const localHist = readLocal<LogEntry>(STORAGE_KEYS.HISTORIAL) || [];
+    const histMap = new Map<string, LogEntry>();
+    [...remoteHist, ...localHist].forEach(l => histMap.set(l.id, l));
+    plan.push({
+      bucket: BUCKETS.historial,
+      label: "Historial",
+      remoteCount: remoteHist.length,
+      localCount: localHist.length,
+      resultCount: histMap.size,
+      descartats: 0,
+      preferencia: "unió",
+      items: Array.from(histMap.values()),
+      key: KEYS.historial as (item: any) => string,
+    });
+
+    // Despeses: v1 never managed to store them (> 1 MiB), so with v1 this browser's copy is used;
+    // with v2 the cloud was the live copy.
+    const remoteFirst = meta.version === 2;
     for (const ex of Array.from(exercicis).sort()) {
-      const imps = add<Imputacio>(BUCKETS.imputacions(ex), `Imputacions ${ex}`, readLocal(imputacionsKey(ex)), KEYS.imputacions, true);
-      const desp = add<Despesa>(BUCKETS.despeses(ex), `Despeses ${ex}`, readLocal(despesesKey(ex)), KEYS.despeses, true);
-      // Totals and state of each despesa must match its imputacions after the merge
-      desp.items = recalcDespesesFromImputacions(desp.items as Despesa[], imps.items as Imputacio[]);
+      const desp = pick<Despesa>(BUCKETS.despeses(ex), `Despeses ${ex}`, readLocal(despesesKey(ex)), KEYS.despeses, remoteFirst);
+      desp.items = (desp.items as Despesa[]).map(stripDerived);
+      const imps = pick<Imputacio>(BUCKETS.imputacions(ex), `Imputacions ${ex}`, readLocal(imputacionsKey(ex)), KEYS.imputacions, remoteFirst);
+      // Imputacions of despeses that don't exist are not migrated
+      const ids = new Set((desp.items as StoredDespesa[]).map(d => d.id));
+      const valid = (imps.items as Imputacio[]).filter(i => ids.has(i.despesa_id));
+      imps.descartats += imps.items.length - valid.length;
+      imps.items = valid;
+      imps.resultCount = valid.length;
     }
 
-    return { buckets: plan };
+    return { fromVersion: meta.version, buckets: plan };
   };
 
   const runMigration = async (plan: MigrationPlan) => {
     if (!auth?.currentUser) {
       throw new Error("Cal haver iniciat sessió amb Google per migrar les dades.");
     }
+    // Someone may have migrated in the meantime (e.g. from another tab)
+    const meta = await fetchSchemaMeta();
+    if (meta.version >= SCHEMA_VERSION) {
+      setCloudStatus("synced");
+      throw new Error("Una altra persona ja ha completat la migració. Ara es mostren les dades del núvol.");
+    }
+    if (meta.version !== plan.fromVersion) {
+      throw new Error("Les dades del núvol han canviat des que es va preparar la migració. Torna-la a preparar.");
+    }
+    const migrator = auth.currentUser.email || auth.currentUser.uid;
+    await acquireMigrationLock(migrator);
     await writeMigration(
       plan.buckets.map(b => ({ bucket: b.bucket, items: b.items, key: b.key })),
-      auth.currentUser.email || auth.currentUser.uid
+      migrator,
+      plan.fromVersion
     );
     setSyncError(null);
     setCloudStatus("synced");
@@ -430,6 +636,13 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   // Import A3 File
   const importA3File = async (fileBuffer: ArrayBuffer, preferredSheet?: string): Promise<ImportSummary> => {
+    if (readOnlyRef.current) {
+      throw new Error(
+        cloudStatus === "migration_pending"
+          ? "Cal fer la migració de les dades («Revisar i migrar») abans de poder importar."
+          : "No hi ha connexió amb el núvol: no es pot importar fins que es resolgui."
+      );
+    }
     const summary = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet);
 
     // Merge new parsed despeses with existing
@@ -439,19 +652,17 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     const updatedList: Despesa[] = [];
     const changedTotals = new Map<string, number>();
     for (const d of summary.despeses) {
-      if (existingMap.has(d.id)) {
-        const prev = existingMap.get(d.id)!;
-        if (Math.abs(prev.total_factura - d.total_factura) > 0.01) {
+      const prev = existingMap.get(d.id);
+      if (prev) {
+        if (Math.abs(prev.total_factura - d.total_factura) > 0.005) {
           changedTotals.set(d.id, d.total_factura);
         }
         updatedList.push({
           ...d,
           // A partida assigned manually (or by account mapping) wins over the one resolved from A3
           partida_id: prev.partida_id && prev.partida_id !== "SENSE_CORRESPONDENCIA" ? prev.partida_id : d.partida_id,
-          estat: prev.estat,
-          percentatge_total: prev.percentatge_total,
-          import_total: prev.import_total,
-          modificat_a3: d.modificat_a3
+          // The A3 change warning stays until someone reviews the imputation
+          modificat_a3: Boolean(prev.modificat_a3 || d.modificat_a3),
         });
         existingMap.delete(d.id);
       } else {
@@ -464,35 +675,40 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     }
 
     // If A3 changed an invoice total, keep the percentages and recalculate the amounts
+    let updatedImputacions: Imputacio[] | undefined;
     if (changedTotals.size > 0) {
       const now = new Date().toISOString();
-      const updatedImputacions = imputacions.map(imp => {
+      updatedImputacions = imputacions.map(imp => {
         const newTotal = changedTotals.get(imp.despesa_id);
         if (newTotal === undefined) return imp;
         return {
           ...imp,
-          import: Math.round(((imp.percentatge / 100) * newTotal) * 100) / 100,
+          import: round2((imp.percentatge / 100) * newTotal),
           data_actualitzacio: now
         };
       });
-      for (let i = 0; i < updatedList.length; i++) {
-        const d = updatedList[i];
-        if (!changedTotals.has(d.id)) continue;
-        const importTotal = updatedImputacions
-          .filter(imp => imp.despesa_id === d.id)
-          .reduce((acc, imp) => acc + imp.import, 0);
-        updatedList[i] = { ...d, import_total: Math.round(importTotal * 100) / 100 };
+      // Invoices imputed at exactly 100%: the last imputacio takes the remainder (to the cent)
+      const byDespesa = new Map<string, number[]>();
+      updatedImputacions.forEach((imp, i) => {
+        if (!changedTotals.has(imp.despesa_id)) return;
+        byDespesa.set(imp.despesa_id, [...(byDespesa.get(imp.despesa_id) || []), i]);
+      });
+      for (const [despesaId, idxs] of byDespesa.entries()) {
+        const pct = round2(idxs.reduce((acc, i) => acc + updatedImputacions![i].percentatge, 0));
+        if (percentCents(pct) !== 10000) continue;
+        const lastIdx = idxs[idxs.length - 1];
+        const others = idxs.slice(0, -1).reduce((acc, i) => acc + updatedImputacions![i].import, 0);
+        updatedImputacions[lastIdx] = { ...updatedImputacions[lastIdx], import: round2(changedTotals.get(despesaId)! - others) };
       }
-      persistImputacions(updatedImputacions);
     }
 
-    persistDespeses(updatedList);
+    commit({ despeses: updatedList, imputacions: updatedImputacions });
 
-    // Record log
+    const altresExercicis = summary.despeses.filter(d => d.any_fiscal !== activeExercici).length;
     recordLog(
       "importacio_a3",
-      `Volcat d'Excel d'A3 Processat`,
-      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} mantingudes, ${summary.facturesModificades} modificacions detectades a l'A3 (${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.`
+      `Volcat d'Excel d'A3 Processat (exercici ${activeExercici})`,
+      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} ja existents (${summary.facturesModificades} amb canvis a l'A3, ${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.${altresExercicis > 0 ? ` Atenció: ${altresExercicis} factures tenen data d'un altre exercici.` : ""}`
     );
 
     return summary;
@@ -504,57 +720,49 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[],
     comentariGlobal?: string
   ) => {
+    const currentDespesa = despeses.find(d => d.id === despesaId);
     const otherImputacions = imputacions.filter(imp => imp.despesa_id !== despesaId);
+    const now = new Date().toISOString();
+    const usuari = currentUserEmail();
 
-    const newImps: Imputacio[] = allocations
-      .filter(a => a.percentatge > 0 || a.import > 0)
-      .map(a => ({
+    // One imputacio per project (the ID is despesa_projecte): repeated rows are merged
+    const byProject = new Map<string, Imputacio>();
+    for (const a of allocations) {
+      if (!a.projecte_id || (a.percentatge <= 0 && a.import === 0)) continue;
+      const prev = byProject.get(a.projecte_id);
+      byProject.set(a.projecte_id, {
         id: `${despesaId}_${a.projecte_id}`,
         despesa_id: despesaId,
         projecte_id: a.projecte_id,
-        percentatge: a.percentatge,
-        import: Math.round(a.import * 100) / 100,
-        observacions: a.observacions || "",
-        data_actualitzacio: new Date().toISOString()
-      }));
+        percentatge: round4((prev?.percentatge || 0) + a.percentatge),
+        import: round2((prev?.import || 0) + a.import),
+        observacions: [prev?.observacions, a.observacions].filter(Boolean).join(" / "),
+        data_actualitzacio: now,
+        usuari
+      });
+    }
+    const newImps = Array.from(byProject.values());
 
-    const updatedImputacions = [...otherImputacions, ...newImps];
-    persistImputacions(updatedImputacions);
-
-    const totalPercent = Math.round(newImps.reduce((acc, curr) => acc + curr.percentatge, 0) * 100) / 100;
-    const totalImport = Math.round(newImps.reduce((acc, curr) => acc + curr.import, 0) * 100) / 100;
-
-    let estat: Despesa["estat"] = 'pendent';
-    if (totalPercent > 100.01) {
-      estat = 'excedida';
-    } else if (Math.abs(totalPercent - 100) <= 0.01) {
-      estat = 'completada';
-    } else if (totalPercent > 0) {
-      estat = 'parcial';
+    // At exactly 100% the amounts must add up to the invoice to the cent (e.g. 50% + 50% of 10,01 €)
+    const totalPercent = round2(newImps.reduce((acc, curr) => acc + curr.percentatge, 0));
+    if (currentDespesa && newImps.length > 0 && percentCents(totalPercent) === 10000) {
+      const last = newImps[newImps.length - 1];
+      const others = newImps.slice(0, -1).reduce((acc, i) => acc + i.import, 0);
+      last.import = round2(currentDespesa.total_factura - others);
     }
 
-    const currentDespesa = despeses.find(d => d.id === despesaId);
+    // Reviewing the imputation clears the "modified in A3" warning
+    const despesesUpdate = currentDespesa?.modificat_a3
+      ? despeses.map(d => (d.id === despesaId ? { ...d, modificat_a3: false } : d))
+      : undefined;
 
-    const updatedDespeses = despeses.map(d => {
-      if (d.id === despesaId) {
-        return {
-          ...d,
-          percentatge_total: totalPercent,
-          import_total: totalImport,
-          estat
-        };
-      }
-      return d;
-    });
+    commit({ imputacions: [...otherImputacions, ...newImps], despeses: despesesUpdate });
 
-    persistDespeses(updatedDespeses);
-
-    // Record log
-    const allocSummary = newImps.map(i => `${i.projecte_id} (${i.percentatge}%, ${i.import}€)`).join(", ") || "Sense projectes (0%)";
+    const allocSummary = newImps.map(i => `${i.projecte_id} (${round2(i.percentatge)}%, ${i.import.toFixed(2)}€)`).join(", ") || "Sense projectes (0%)";
     recordLog(
       "imputacio",
       `Imputació de Factura: ${currentDespesa?.ndoc_a3 || despesaId}`,
-      `Proveïdor: ${currentDespesa?.proveidor || "-"} | Total factura: ${currentDespesa?.total_factura.toFixed(2)}€ | Repartiment: ${allocSummary}`,
+      `Proveïdor: ${currentDespesa?.proveidor || "-"} | Total factura: ${currentDespesa ? currentDespesa.total_factura.toFixed(2) : "-"}€ | Repartiment: ${allocSummary}`,
       { despesa_id: despesaId, comentaris: comentariGlobal }
     );
   };
@@ -563,17 +771,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   const bulkAssignPartida = (despesaIds: string[], partidaId: string, comentaris?: string) => {
     if (despesaIds.length === 0) return;
     const idSet = new Set(despesaIds);
-    const updatedDespeses = despeses.map(d => {
-      if (idSet.has(d.id)) {
-        return {
-          ...d,
-          partida_id: partidaId
-        };
-      }
-      return d;
-    });
-
-    persistDespeses(updatedDespeses);
+    commit({ despeses: despeses.map(d => (idSet.has(d.id) ? { ...d, partida_id: partidaId } : d)) });
 
     recordLog(
       "nota_manual",
@@ -590,56 +788,52 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   ) => {
     if (despesaIds.length === 0) return;
     const idSet = new Set(despesaIds);
-    const validAllocations = allocations.filter(a => a.percentatge > 0);
-    const totalPercent = Math.round(validAllocations.reduce((acc, curr) => acc + curr.percentatge, 0) * 100) / 100;
 
-    let estat: Despesa["estat"] = 'pendent';
-    if (totalPercent > 100.01) {
-      estat = 'excedida';
-    } else if (Math.abs(totalPercent - 100) <= 0.01) {
-      estat = 'completada';
-    } else if (totalPercent > 0) {
-      estat = 'parcial';
+    // Merge repeated projects and drop empty rows
+    const merged = new Map<string, number>();
+    for (const a of allocations) {
+      if (!a.projecte_id || !(a.percentatge > 0)) continue;
+      merged.set(a.projecte_id, (merged.get(a.projecte_id) || 0) + a.percentatge);
     }
+    const validAllocations = Array.from(merged.entries()).map(([projecte_id, percentatge]) => ({ projecte_id, percentatge }));
+    const totalPercent = round2(validAllocations.reduce((acc, curr) => acc + curr.percentatge, 0));
+    const closesInvoice = percentCents(totalPercent) === 10000;
 
     const preservedImputacions = imputacions.filter(imp => !idSet.has(imp.despesa_id));
     const newImps: Imputacio[] = [];
+    const now = new Date().toISOString();
+    const usuari = currentUserEmail();
 
-    const updatedDespeses = despeses.map(d => {
-      if (idSet.has(d.id)) {
-        let totalImport = 0;
-        for (const alloc of validAllocations) {
-          const importAlloc = Math.round(((alloc.percentatge / 100) * d.total_factura) * 100) / 100;
-          totalImport += importAlloc;
-          newImps.push({
-            id: `${d.id}_${alloc.projecte_id}`,
-            despesa_id: d.id,
-            projecte_id: alloc.projecte_id,
-            percentatge: alloc.percentatge,
-            import: importAlloc,
-            observacions: comentaris || "",
-            data_actualitzacio: new Date().toISOString()
-          });
-        }
+    for (const d of despeses) {
+      if (!idSet.has(d.id)) continue;
+      let totalImport = 0;
+      validAllocations.forEach((alloc, i) => {
+        const isLast = i === validAllocations.length - 1;
+        // At 100% the last project takes the remainder so the amounts add up to the invoice to the cent
+        const importAlloc = isLast && closesInvoice
+          ? round2(d.total_factura - totalImport)
+          : round2((alloc.percentatge / 100) * d.total_factura);
+        totalImport += importAlloc;
+        newImps.push({
+          id: `${d.id}_${alloc.projecte_id}`,
+          despesa_id: d.id,
+          projecte_id: alloc.projecte_id,
+          percentatge: alloc.percentatge,
+          import: importAlloc,
+          observacions: comentaris || "",
+          data_actualitzacio: now,
+          usuari
+        });
+      });
+    }
 
-        return {
-          ...d,
-          percentatge_total: totalPercent,
-          import_total: Math.round(totalImport * 100) / 100,
-          estat
-        };
-      }
-      return d;
-    });
-
-    persistImputacions([...preservedImputacions, ...newImps]);
-    persistDespeses(updatedDespeses);
+    commit({ imputacions: [...preservedImputacions, ...newImps] });
 
     const allocDesc = validAllocations.map(a => `${a.projecte_id} (${a.percentatge}%)`).join(", ") || "Sense projectes (0%)";
     recordLog(
       "imputacio",
       `Imputació Massiva a Projectes (${despesaIds.length} factures)`,
-      `Repartiment aplicat a ${despesaIds.length} factures: ${allocDesc}`,
+      `Repartiment aplicat a ${despesaIds.length} factures (substitueix les imputacions prèvies): ${allocDesc}`,
       { comentaris }
     );
   };
@@ -647,21 +841,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   const bulkResetImputacions = (despesaIds: string[], comentaris?: string) => {
     if (despesaIds.length === 0) return;
     const idSet = new Set(despesaIds);
-    const updatedImputacions = imputacions.filter(imp => !idSet.has(imp.despesa_id));
-    persistImputacions(updatedImputacions);
-
-    const updatedDespeses = despeses.map(d => {
-      if (idSet.has(d.id)) {
-        return {
-          ...d,
-          percentatge_total: 0,
-          import_total: 0,
-          estat: 'pendent' as const
-        };
-      }
-      return d;
-    });
-    persistDespeses(updatedDespeses);
+    commit({ imputacions: imputacions.filter(imp => !idSet.has(imp.despesa_id)) });
 
     recordLog(
       "imputacio",
@@ -674,11 +854,10 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   const bulkDeleteDespeses = (despesaIds: string[], comentaris?: string) => {
     if (despesaIds.length === 0) return;
     const idSet = new Set(despesaIds);
-    const updatedDespeses = despeses.filter(d => !idSet.has(d.id));
-    const updatedImputacions = imputacions.filter(imp => !idSet.has(imp.despesa_id));
-
-    persistDespeses(updatedDespeses);
-    persistImputacions(updatedImputacions);
+    commit({
+      despeses: despeses.filter(d => !idSet.has(d.id)),
+      imputacions: imputacions.filter(imp => !idSet.has(imp.despesa_id)),
+    });
 
     recordLog(
       "nota_manual",
@@ -688,40 +867,62 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     );
   };
 
-  // Assign Partida to Account & re-evaluate despeses
-  const assignPartidaToCompte = (compte: string, partidaId: string) => {
-    const existing = equivalencies.find(e => e.compte === compte);
-    let updatedEqs: Equivalencia[];
-    if (existing) {
-      updatedEqs = equivalencies.map(e => e.compte === compte ? { ...e, partida_id: partidaId } : e);
-    } else {
-      updatedEqs = [...equivalencies, { compte, partida_id: partidaId, descripcio: "Assignat manualment" }];
-    }
-    persistEquivalencies(updatedEqs);
+  // Account numbers compared without spaces/punctuation (as the A3 parser does)
+  const sameCompte = (a: string | undefined, b: string | undefined) => {
+    const ca = cleanStr(a);
+    return ca !== "" && ca === cleanStr(b);
+  };
 
+  /**
+   * Saves an equivalence and re-applies it to the despeses of that account that were still
+   * unmapped or that had the partida of the previous equivalence. Partides assigned manually
+   * to individual despeses are kept.
+   */
+  const upsertEquivalencia = (eq: Equivalencia): { previous?: Equivalencia; affected: number } => {
+    const previous = equivalencies.find(e => sameCompte(e.compte, eq.compte));
+    const updatedEqs = previous
+      ? equivalencies.map(e => (sameCompte(e.compte, eq.compte) ? { ...e, ...eq, compte: e.compte } : e))
+      : [...equivalencies, eq];
+
+    let affected = 0;
     const updatedDespeses = despeses.map(d => {
-      if (d.compte_despesa === compte || (d.partida_id === "SENSE_CORRESPONDENCIA" && d.compte_despesa.includes(compte))) {
-        return {
-          ...d,
-          partida_id: partidaId
-        };
-      }
-      return d;
+      if (!sameCompte(d.compte_despesa, eq.compte)) return d;
+      const autoAssigned = d.partida_id === "SENSE_CORRESPONDENCIA" || (previous && d.partida_id === previous.partida_id);
+      if (!autoAssigned || d.partida_id === eq.partida_id) return d;
+      affected++;
+      return { ...d, partida_id: eq.partida_id };
     });
-    persistDespeses(updatedDespeses);
+    commit({ equivalencies: updatedEqs, despeses: affected > 0 ? updatedDespeses : undefined });
+    return { previous, affected };
+  };
+
+  const assignPartidaToCompte = (compte: string, partidaId: string) => {
+    const existing = equivalencies.find(e => sameCompte(e.compte, compte));
+    const { affected } = upsertEquivalencia({
+      compte,
+      partida_id: partidaId,
+      descripcio: existing?.descripcio || "Assignat manualment"
+    });
 
     recordLog(
       "equivalencia",
       `Mapeig de Compte: ${compte}`,
-      `Assignat automàticament a la partida ${partidaId} per a totes les factures associades.`
+      `Assignat a la partida ${partidaId}. ${affected} factures actualitzades (es respecten les partides assignades manualment).`
     );
   };
 
   // Projects CRUD
-  const addProjecte = (p: Omit<Projecte, "id">) => {
+  const addProjecte = (p: Omit<Projecte, "id">): boolean => {
     const id = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
-    const updated = [...projectes, { ...p, id, codi: id, actiu: true }];
-    persistProjectes(updated);
+    if (!id) {
+      alert("El codi del projecte és obligatori.");
+      return false;
+    }
+    if (projectes.some(item => item.id === id || item.codi.toUpperCase() === id)) {
+      alert(`Ja existeix un projecte amb el codi ${id}.`);
+      return false;
+    }
+    commit({ projectes: [...projectes, { ...p, id, codi: id, actiu: true }] });
 
     recordLog(
       "projecte",
@@ -729,51 +930,54 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       `Finançador: ${p.financador || "-"} | Àrea: ${p.area || "-"} | Període: ${p.dates_text}`,
       { projecte_id: id }
     );
+    return true;
   };
 
   const updateProjecte = (p: Projecte) => {
-    const updated = projectes.map(item => item.id === p.id ? p : item);
-    persistProjectes(updated);
+    // The code is the project's identity (it is the ID used by the imputacions): it can't change.
+    // The active state only changes with setProjecteActiu (the form may hold a stale value).
+    commit({ projectes: projectes.map(item => (item.id === p.id ? { ...p, codi: item.codi, actiu: item.actiu } : item)) });
 
     recordLog(
       "projecte",
       `Projecte Actualitzat: ${p.codi}`,
-      `Finançador: ${p.financador || "-"} | Àrea: ${p.area || "-"} | Dates: ${p.dates_text} | Estat: ${p.actiu ? "Actiu" : "Tancat"}`,
+      `Finançador: ${p.financador || "-"} | Àrea: ${p.area || "-"} | Dates: ${p.dates_text}`,
       { projecte_id: p.id }
     );
   };
 
-  const deleteProjecte = (id: string) => {
-    const updated = projectes.map(item => item.id === id ? { ...item, actiu: false } : item);
-    persistProjectes(updated);
+  const setProjecteActiu = (id: string, actiu: boolean) => {
+    commit({ projectes: projectes.map(item => (item.id === id ? { ...item, actiu } : item)) });
 
     recordLog(
       "projecte",
-      `Projecte Desactivat: ${id}`,
-      `El projecte ha estat marcat com a tancat/inactiu.`
+      actiu ? `Projecte Reactivat: ${id}` : `Projecte Desactivat: ${id}`,
+      actiu ? `El projecte torna a estar actiu.` : `El projecte ha estat marcat com a tancat/inactiu.`,
+      { projecte_id: id }
     );
   };
 
-  // Partides CRUD
-  const addPartida = (p: { codi: string; nom: string }, comentaris?: string) => {
-    const rawCode = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
-    const codi = rawCode.startsWith("DD_") ? rawCode : `DD_${rawCode}`;
-    const id = codi;
+  const deleteProjecte = (id: string) => setProjecteActiu(id, false);
 
-    if (partides.some(item => item.id === id)) {
-      alert(`La partida amb codi ${codi} ja existeix.`);
-      return;
+  // Partides CRUD
+  const addPartida = (p: { codi: string; nom: string }, comentaris?: string): boolean => {
+    // Same style as the catalog codes (e.g. "DD_DIR.LEGAL I GI"): uppercase, spaces and dots allowed
+    const rawCode = p.codi.toUpperCase().trim().replace(/\s+/g, " ").replace(/[^\p{L}\p{N} ._-]/gu, "_");
+    if (!rawCode || rawCode === "DD_") {
+      alert("El codi de la partida és obligatori.");
+      return false;
+    }
+    const codi = rawCode.startsWith("DD_") ? rawCode : `DD_${rawCode}`;
+
+    // "DD_DIR.LEGAL I GI" and "DD_DIR_LEGAL_I_GI" are the same partida
+    const existing = partides.find(item => cleanStr(item.id) === cleanStr(codi));
+    if (existing) {
+      alert(`Ja existeix la partida ${existing.codi}${existing.activa === false ? " (donada de baixa: pots reactivar-la)" : ""}.`);
+      return false;
     }
 
-    const novaPartida: Partida = {
-      id,
-      codi,
-      nom: p.nom.trim() || codi,
-      activa: true
-    };
-
-    const updated = [...partides, novaPartida];
-    persistPartides(updated);
+    const novaPartida: Partida = { id: codi, codi, nom: p.nom.trim() || codi, activa: true };
+    commit({ partides: [...partides, novaPartida] });
 
     recordLog(
       "partida",
@@ -781,29 +985,31 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       `Nom: ${novaPartida.nom} | Estat: Activa`,
       { comentaris }
     );
+    return true;
   };
 
   const updatePartida = (p: Partida, comentaris?: string) => {
-    const updated = partides.map(item => item.id === p.id ? { ...item, nom: p.nom.trim(), activa: p.activa !== false } : item);
-    persistPartides(updated);
+    // `activa` undefined = unchanged (the form may hold a stale value)
+    const current = partides.find(item => item.id === p.id);
+    const activa = p.activa === undefined ? current?.activa !== false : p.activa !== false;
+    commit({ partides: partides.map(item => (item.id === p.id ? { ...item, nom: p.nom.trim(), activa } : item)) });
 
     recordLog(
       "partida",
       `Partida Modificada: ${p.codi}`,
-      `Nom: ${p.nom.trim()} | Estat: ${p.activa !== false ? "Activa" : "Donada de Baixa"}`,
+      `Nom: ${p.nom.trim()} | Estat: ${activa ? "Activa" : "Donada de Baixa"}`,
       { comentaris }
     );
   };
 
-  const toggleBaixaPartida = (id: string, comentaris?: string) => {
+  const toggleBaixaPartida = (id: string, comentaris?: string, activa?: boolean) => {
     const target = partides.find(item => item.id === id);
     if (!target) return;
 
-    const novaActiva = target.activa === false ? true : false;
+    const novaActiva = activa ?? target.activa === false;
+    if (novaActiva === (target.activa !== false)) return;
     const estatText = novaActiva ? "Reactivada / Donada d'Alta" : "Donada de Baixa (Arxivada)";
-
-    const updated = partides.map(item => item.id === id ? { ...item, activa: novaActiva } : item);
-    persistPartides(updated);
+    commit({ partides: partides.map(item => (item.id === id ? { ...item, activa: novaActiva } : item)) });
 
     recordLog(
       "partida",
@@ -815,30 +1021,27 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   // Equivalencies CRUD
   const addEquivalencia = (eq: Equivalencia) => {
-    const updated = [...equivalencies, eq];
-    persistEquivalencies(updated);
+    const { previous, affected } = upsertEquivalencia(eq);
 
     recordLog(
       "equivalencia",
-      `Equivalència Creada: ${eq.compte}`,
-      `Compte ${eq.compte} (${eq.descripcio || "-"}) vinculat a la partida ${eq.partida_id}`
+      previous ? `Equivalència Modificada: ${eq.compte}` : `Equivalència Creada: ${eq.compte}`,
+      `Compte ${eq.compte} (${eq.descripcio || "-"}) vinculat a la partida ${eq.partida_id}. ${affected} factures actualitzades.`
     );
   };
 
   const updateEquivalencia = (eq: Equivalencia) => {
-    const updated = equivalencies.map(e => e.compte === eq.compte ? eq : e);
-    persistEquivalencies(updated);
+    const { affected } = upsertEquivalencia(eq);
 
     recordLog(
       "equivalencia",
       `Equivalència Modificada: ${eq.compte}`,
-      `Compte ${eq.compte} reassignat a la partida ${eq.partida_id}`
+      `Compte ${eq.compte} reassignat a la partida ${eq.partida_id}. ${affected} factures actualitzades.`
     );
   };
 
   const deleteEquivalencia = (compte: string) => {
-    const updated = equivalencies.filter(e => e.compte !== compte);
-    persistEquivalencies(updated);
+    commit({ equivalencies: equivalencies.filter(e => e.compte !== compte) });
 
     recordLog(
       "equivalencia",
@@ -853,13 +1056,20 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   };
 
   const updateLogComentari = (logId: string, comentari: string) => {
-    const updated = historial.map(item => item.id === logId ? { ...item, comentaris: comentari } : item);
-    persistHistorial(updated);
+    commitHistorial(historialRef.current.map(item => (item.id === logId ? { ...item, comentaris: comentari } : item)));
   };
 
   const deleteLogEntry = (logId: string) => {
-    const updated = historial.filter(item => item.id !== logId);
-    persistHistorial(updated);
+    const target = historialRef.current.find(item => item.id === logId);
+    commitHistorial(historialRef.current.filter(item => item.id !== logId));
+    // Audit trail: deleting an entry leaves a record of what was deleted
+    if (target) {
+      recordLog(
+        "nota_manual",
+        `Entrada de l'Historial Eliminada`,
+        `S'ha eliminat l'entrada "${target.titol}" del ${new Date(target.timestamp).toLocaleString("ca-ES")} (${target.usuari || "-"}). Detall original: ${target.detall}`
+      );
+    }
   };
 
   // Export to Excel
@@ -877,16 +1087,23 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   };
 
   const clearAllData = () => {
-    persistDespeses([]);
-    persistImputacions([]);
-    recordLog("nota_manual", "Dades de Despeses Reiniciades", "S'han buidat les despeses i les imputacions carregades.");
+    commit({ despeses: [], imputacions: [] });
+    recordLog("nota_manual", "Dades de Despeses Reiniciades", `S'han buidat les despeses i les imputacions de l'exercici ${activeExercici}.`);
   };
 
+  // Restores the original catalog values without deleting what the users created afterwards
   const reloadSeedData = () => {
-    persistPartides(seedData.partidas as Partida[]);
-    persistEquivalencies(seedData.equivalencies as Equivalencia[]);
-    persistProjectes(seedData.projectes as Projecte[]);
-    recordLog("nota_manual", "Catàleg Restaurat", "S'han restaurat les 49 partides, 323 equivalències i 44 projectes originals.");
+    const restore = <T,>(current: T[], seed: T[], key: (item: T) => string): T[] => {
+      const seedMap = new Map(seed.map(item => [key(item), item]));
+      const kept = current.filter(item => !seedMap.has(key(item)));
+      return [...Array.from(seedMap.values()), ...kept];
+    };
+    commit({
+      partides: restore(partides, seedData.partidas as Partida[], KEYS.partides),
+      equivalencies: restore(equivalencies, seedData.equivalencies as Equivalencia[], KEYS.equivalencies),
+      projectes: restore(projectes, seedData.projectes as Projecte[], KEYS.projectes),
+    });
+    recordLog("nota_manual", "Catàleg Restaurat", "S'han restaurat els valors originals de les partides, equivalències i projectes del catàleg inicial. Els elements creats posteriorment s'han mantingut.");
   };
 
   return (
@@ -912,6 +1129,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         addProjecte,
         updateProjecte,
         deleteProjecte,
+        setProjecteActiu,
         addPartida,
         updatePartida,
         toggleBaixaPartida,
@@ -931,7 +1149,20 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         reloadSeedData,
       }}
     >
-      {children}
+      {isLoading ? (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100 p-4">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="h-12 w-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xl shadow-lg animate-pulse">
+              SL
+            </div>
+            <p className="text-slate-600 text-sm font-medium animate-pulse">
+              Carregant les dades de l&apos;exercici {activeExercici}...
+            </p>
+          </div>
+        </div>
+      ) : (
+        children
+      )}
     </JustificacionsContext.Provider>
   );
 }

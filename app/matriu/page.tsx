@@ -1,44 +1,94 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { Table2, Download, Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import React, { useState, useMemo, useDeferredValue } from "react";
+import { Table2, Download, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
+import { disponibleOf } from "@/lib/sync_utils";
 import { Despesa } from "@/lib/types";
+
+const PAGE_SIZE = 100;
+const SENSE_CORRESPONDENCIA = "SENSE_CORRESPONDENCIA";
+// Valor especial del selector: factures amb una partida que no existeix al catàleg
+const PARTIDA_DESCONEGUDA = "__PARTIDA_DESCONEGUDA__";
+
+type MatrixProject = {
+  id: string;
+  codi: string;
+  financador: string;
+  tancat: boolean;
+  desconegut: boolean;
+};
+
+const fmtEur = (n: number) => `${n.toFixed(2)} €`;
+const fmtPerc = (n: number) =>
+  `${n.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+
+// Disponible per fila: same criterion as the dashboard and the Excel export
 
 export default function MatriuPage() {
   const { despeses, imputacions, projectes, partides, exportToExcel } = useJustificacions();
 
   const [selectedPartida, setSelectedPartida] = useState<string>("totes");
   const [searchFilter, setSearchFilter] = useState<string>("");
+  const deferredSearch = useDeferredValue(searchFilter);
+  const [page, setPage] = useState<number>(1);
 
   // Sorting state
   const [sortKey, setSortKey] = useState<string>("data_emissio");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
-  const activeProjects = useMemo(() => projectes.filter(p => p.actiu), [projectes]);
+  const partidaIds = useMemo(() => new Set(partides.map(p => p.id)), [partides]);
 
-  // Index allocations
-  const impsByDespesa = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
+  const sortedPartides = useMemo(
+    () => [...partides].sort((a, b) => a.codi.localeCompare(b.codi)),
+    [partides]
+  );
+
+  // Index allocations (import i percentatge en una sola passada)
+  const { impsByDespesa, impsPercentByDespesa, projectsWithImps } = useMemo(() => {
+    const imps = new Map<string, Map<string, number>>();
+    const percs = new Map<string, Map<string, number>>();
+    const withImps = new Set<string>();
     for (const imp of imputacions) {
-      if (!map.has(imp.despesa_id)) {
-        map.set(imp.despesa_id, new Map());
+      let m = imps.get(imp.despesa_id);
+      if (!m) {
+        m = new Map();
+        imps.set(imp.despesa_id, m);
       }
-      map.get(imp.despesa_id)!.set(imp.projecte_id, imp.import);
+      m.set(imp.projecte_id, imp.import);
+
+      let pm = percs.get(imp.despesa_id);
+      if (!pm) {
+        pm = new Map();
+        percs.set(imp.despesa_id, pm);
+      }
+      pm.set(imp.projecte_id, imp.percentatge);
+
+      withImps.add(imp.projecte_id);
     }
-    return map;
+    return { impsByDespesa: imps, impsPercentByDespesa: percs, projectsWithImps: withImps };
   }, [imputacions]);
 
-  const impsPercentByDespesa = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
-    for (const imp of imputacions) {
-      if (!map.has(imp.despesa_id)) {
-        map.set(imp.despesa_id, new Map());
+  // Projectes actius + tancats amb imputacions (+ ids desconeguts), perquè cada fila quadri amb "Cobert"
+  const matrixProjects = useMemo<MatrixProject[]>(() => {
+    const known = new Set<string>();
+    const cols: MatrixProject[] = [];
+    for (const p of projectes) {
+      known.add(p.id);
+      if (p.actiu || projectsWithImps.has(p.id)) {
+        cols.push({ id: p.id, codi: p.codi, financador: p.financador, tancat: !p.actiu, desconegut: false });
       }
-      map.get(imp.despesa_id)!.set(imp.projecte_id, imp.percentatge);
     }
-    return map;
-  }, [imputacions]);
+    projectsWithImps.forEach(id => {
+      if (!known.has(id)) {
+        cols.push({ id, codi: id, financador: "", tancat: false, desconegut: true });
+      }
+    });
+    return cols;
+  }, [projectes, projectsWithImps]);
+
+  const activeProjectsCount = useMemo(() => matrixProjects.filter(p => !p.tancat && !p.desconegut).length, [matrixProjects]);
+  const closedProjectsCount = matrixProjects.length - activeProjectsCount;
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -47,35 +97,73 @@ export default function MatriuPage() {
       setSortKey(key);
       setSortOrder("asc");
     }
+    setPage(1);
   };
 
   const renderSortIcon = (key: string) => {
     if (sortKey !== key) {
-      return <ArrowUpDown className="w-3 h-3 text-slate-300 ml-1 inline" />;
+      return <ArrowUpDown className="w-3 h-3 text-slate-300 ml-1 inline" aria-hidden="true" />;
     }
     return sortOrder === "asc" ? (
-      <ArrowUp className="w-3 h-3 text-emerald-600 ml-1 inline" />
+      <ArrowUp className="w-3 h-3 text-emerald-600 ml-1 inline" aria-hidden="true" />
     ) : (
-      <ArrowDown className="w-3 h-3 text-emerald-600 ml-1 inline" />
+      <ArrowDown className="w-3 h-3 text-emerald-600 ml-1 inline" aria-hidden="true" />
     );
   };
 
+  const ariaSort = (key: string): React.AriaAttributes["aria-sort"] =>
+    sortKey === key ? (sortOrder === "asc" ? "ascending" : "descending") : "none";
+
+  // Capçalera ordenable accessible (button dins de th). Funció de render, no component,
+  // per no remuntar el botó a cada render (manté el focus del teclat).
+  const sortTh = ({
+    sortId,
+    label,
+    title,
+    className,
+    align = "left",
+  }: {
+    sortId: string;
+    label: string;
+    title: string;
+    className: string;
+    align?: "left" | "right" | "center";
+  }) => (
+    <th aria-sort={ariaSort(sortId)} className={`p-0 whitespace-nowrap border-r ${className}`}>
+      <button
+        type="button"
+        onClick={() => handleSort(sortId)}
+        title={title}
+        className={`w-full py-2 px-3 flex items-center ${
+          align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start"
+        } focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500`}
+      >
+        <span>{label}</span>
+        {renderSortIcon(sortId)}
+      </button>
+    </th>
+  );
+
   const filteredDespeses = useMemo(() => {
+    const term = deferredSearch.trim().toLowerCase();
     return despeses.filter(d => {
-      if (selectedPartida !== "totes" && d.partida_id !== selectedPartida) {
+      if (selectedPartida === PARTIDA_DESCONEGUDA) {
+        if (!d.partida_id || d.partida_id === SENSE_CORRESPONDENCIA || partidaIds.has(d.partida_id)) return false;
+      } else if (selectedPartida === SENSE_CORRESPONDENCIA) {
+        if (d.partida_id && d.partida_id !== SENSE_CORRESPONDENCIA) return false;
+      } else if (selectedPartida !== "totes" && d.partida_id !== selectedPartida) {
         return false;
       }
-      if (searchFilter) {
-        const term = searchFilter.toLowerCase();
+      if (term) {
         return (
-          d.proveidor.toLowerCase().includes(term) ||
-          d.factura.toLowerCase().includes(term) ||
-          d.ndoc_a3.toLowerCase().includes(term)
+          (d.proveidor || "").toLowerCase().includes(term) ||
+          (d.factura || "").toLowerCase().includes(term) ||
+          (d.ndoc_a3 || "").toLowerCase().includes(term)
         );
       }
       return true;
     });
-  }, [despeses, selectedPartida, searchFilter]);
+  }, [despeses, selectedPartida, deferredSearch, partidaIds]);
 
   const sortedDespeses = useMemo(() => {
     return [...filteredDespeses].sort((a, b) => {
@@ -94,8 +182,8 @@ export default function MatriuPage() {
         valA = a.import_total;
         valB = b.import_total;
       } else if (sortKey === "disponible") {
-        valA = Math.max(0, a.total_factura - a.import_total);
-        valB = Math.max(0, b.total_factura - b.import_total);
+        valA = disponibleOf(a);
+        valB = disponibleOf(b);
       } else {
         valA = (a as any)[sortKey] ?? "";
         valB = (b as any)[sortKey] ?? "";
@@ -113,6 +201,87 @@ export default function MatriuPage() {
     });
   }, [filteredDespeses, sortKey, sortOrder, impsPercentByDespesa, impsByDespesa]);
 
+  // Paginació
+  const totalRows = sortedDespeses.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = useMemo(
+    () => sortedDespeses.slice(pageStart, pageStart + PAGE_SIZE),
+    [sortedDespeses, pageStart]
+  );
+
+  const hasFilters = selectedPartida !== "totes" || searchFilter.trim() !== "";
+  const isSearchPending = searchFilter !== deferredSearch;
+
+  const clearFilters = () => {
+    setSearchFilter("");
+    setSelectedPartida("totes");
+    setPage(1);
+  };
+
+  const renderPagination = () => (
+    <nav
+      aria-label="Paginació de la matriu"
+      className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 text-xs text-slate-500"
+    >
+      <span>
+        {totalRows > 0 ? (
+          <>
+            Files <strong>{pageStart + 1}</strong>–<strong>{Math.min(pageStart + PAGE_SIZE, totalRows)}</strong> de{" "}
+            <strong>{totalRows}</strong>
+          </>
+        ) : (
+          "Cap fila"
+        )}
+      </span>
+      <div className="flex items-center space-x-1">
+        <button
+          type="button"
+          onClick={() => setPage(1)}
+          disabled={currentPage <= 1}
+          aria-label="Primera pàgina"
+          className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <ChevronsLeft className="w-4 h-4" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setPage(Math.max(1, currentPage - 1))}
+          disabled={currentPage <= 1}
+          aria-label="Pàgina anterior"
+          className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+        </button>
+        <span className="px-2 font-semibold text-slate-700" aria-live="polite">
+          Pàgina {currentPage} de {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage >= totalPages}
+          aria-label="Pàgina següent"
+          className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <ChevronRight className="w-4 h-4" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setPage(totalPages)}
+          disabled={currentPage >= totalPages}
+          aria-label="Última pàgina"
+          className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <ChevronsRight className="w-4 h-4" aria-hidden="true" />
+        </button>
+      </div>
+    </nav>
+  );
+
+  const projectLabel = (p: MatrixProject) =>
+    p.tancat ? `${p.codi} (TANCAT)` : p.desconegut ? `${p.codi} (DESCONEGUT)` : p.codi;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -122,7 +291,7 @@ export default function MatriuPage() {
             Matriu Global de Justificacions
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Visualització de la matriu completa homologada amb les 24 columnes base d'A3 i el creuament de tots els projectes.
+            Visualització de la matriu amb les dades comptables principals d'A3, el control de cobertura de cada factura i el creuament amb tots els projectes amb imputacions.
           </p>
         </div>
 
@@ -136,52 +305,67 @@ export default function MatriuPage() {
         </button>
       </div>
 
-      {/* Filter toolbar & Partida tabs */}
+      {/* Filter toolbar & Partida selector */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-          
-          {/* Search box */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-            <input
-              type="text"
-              placeholder="Filtrar per proveïdor, factura..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50"
-            />
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+            {/* Search box */}
+            <div className="relative w-full sm:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" aria-hidden="true" />
+              <input
+                type="text"
+                aria-label="Filtrar per proveïdor, factura o document A3"
+                placeholder="Filtrar per proveïdor, factura..."
+                value={searchFilter}
+                onChange={(e) => {
+                  setSearchFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50"
+              />
+            </div>
+
+            {/* Partida selector (totes les partides del catàleg) */}
+            <select
+              aria-label="Filtrar per partida"
+              value={selectedPartida}
+              onChange={(e) => {
+                setSelectedPartida(e.target.value);
+                setPage(1);
+              }}
+              className="w-full sm:w-80 px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50"
+            >
+              <option value="totes">Totes les Partides</option>
+              <option value={SENSE_CORRESPONDENCIA}>Sense correspondència</option>
+              <option value={PARTIDA_DESCONEGUDA}>Partida desconeguda (fora del catàleg)</option>
+              <optgroup label="Partides del catàleg">
+                {sortedPartides.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.codi}
+                    {p.activa === false ? " (baixa)" : ""}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-xs font-semibold text-emerald-600 hover:underline whitespace-nowrap"
+              >
+                Netejar filtres
+              </button>
+            )}
           </div>
 
           <div className="text-xs text-slate-500">
-            Mostrant <strong>{sortedDespeses.length}</strong> factures | <strong>{activeProjects.length}</strong> projectes creuats
+            {isSearchPending && <span className="mr-2 text-slate-400">Filtrant...</span>}
+            Mostrant <strong>{totalRows}</strong> factures | <strong>{activeProjectsCount}</strong> projectes creuats
+            {closedProjectsCount > 0 && (
+              <> + <strong>{closedProjectsCount}</strong> tancats amb imputacions</>
+            )}
           </div>
-        </div>
-
-        {/* Partida pill selector */}
-        <div className="flex items-center space-x-2 overflow-x-auto pb-2 border-t border-slate-100 pt-3">
-          <button
-            onClick={() => setSelectedPartida("totes")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              selectedPartida === "totes"
-                ? "bg-slate-900 text-white"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            Totes les Partides
-          </button>
-          {partides.slice(0, 20).map(p => (
-            <button
-              key={p.id}
-              onClick={() => setSelectedPartida(p.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                selectedPartida === p.id
-                  ? "bg-emerald-600 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              {p.codi}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -189,7 +373,7 @@ export default function MatriuPage() {
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
         <div className="overflow-x-auto max-h-[70vh]">
           <table className="text-left text-xs border-collapse">
-            
+
             {/* Top Multi-row Header (Matching Justificacions_a3.xlsx) */}
             <thead className="sticky top-0 bg-white z-20 shadow-sm">
               {/* Row 1: Finançador */}
@@ -200,9 +384,16 @@ export default function MatriuPage() {
                 <th colSpan={2} className="px-3 py-1 border-r border-slate-200 bg-emerald-50/70 text-emerald-800 text-center">
                   CONTROL
                 </th>
-                {activeProjects.map(p => (
-                  <th key={p.id} colSpan={2} className="px-2 py-1 border-r border-slate-200 bg-sky-50 text-sky-800 text-center truncate max-w-[120px]" title={p.financador}>
-                    {p.financador || "Finançador"}
+                {matrixProjects.map(p => (
+                  <th
+                    key={p.id}
+                    colSpan={2}
+                    className={`px-2 py-1 border-r border-slate-200 text-center truncate max-w-[120px] ${
+                      p.tancat || p.desconegut ? "bg-slate-100 text-slate-500" : "bg-sky-50 text-sky-800"
+                    }`}
+                    title={p.financador}
+                  >
+                    {p.financador || (p.desconegut ? "Desconegut" : "Finançador")}
                   </th>
                 ))}
               </tr>
@@ -215,121 +406,68 @@ export default function MatriuPage() {
                 <th colSpan={2} className="px-3 py-1 border-r border-slate-200 text-center text-slate-500">
                   TOTALS
                 </th>
-                {activeProjects.map(p => (
-                  <th key={p.id} colSpan={2} className="px-2 py-1 border-r border-slate-200 bg-sky-100/60 text-sky-900 text-center font-black">
-                    {p.codi}
+                {matrixProjects.map(p => (
+                  <th
+                    key={p.id}
+                    colSpan={2}
+                    className={`px-2 py-1 border-r border-slate-200 text-center font-black ${
+                      p.tancat || p.desconegut ? "bg-slate-200/70 text-slate-600" : "bg-sky-100/60 text-sky-900"
+                    }`}
+                    title={p.tancat ? "Projecte tancat/inactiu amb imputacions" : p.desconegut ? "Projecte que no existeix al catàleg" : undefined}
+                  >
+                    {projectLabel(p)}
                   </th>
                 ))}
               </tr>
 
-              {/* Row 3: Column names with clickable sort */}
+              {/* Row 3: Column names with sortable buttons */}
               <tr className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200 select-none">
-                <th 
-                  onClick={() => handleSort("ndoc_a3")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors"
-                  title="Ordenar per Doc A3"
-                >
-                  <span>Doc A3</span>
-                  {renderSortIcon("ndoc_a3")}
-                </th>
-                <th 
-                  onClick={() => handleSort("factura")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors"
-                  title="Ordenar per Factura"
-                >
-                  <span>Factura</span>
-                  {renderSortIcon("factura")}
-                </th>
-                <th 
-                  onClick={() => handleSort("proveidor")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors"
-                  title="Ordenar per Proveïdor"
-                >
-                  <span>Proveïdor</span>
-                  {renderSortIcon("proveidor")}
-                </th>
-                <th 
-                  onClick={() => handleSort("partida_id")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors"
-                  title="Ordenar per Partida"
-                >
-                  <span>Partida</span>
-                  {renderSortIcon("partida_id")}
-                </th>
-                <th 
-                  onClick={() => handleSort("data_emissio")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors"
-                  title="Ordenar per Data"
-                >
-                  <span>Data</span>
-                  {renderSortIcon("data_emissio")}
-                </th>
-                <th 
-                  onClick={() => handleSort("base_imposable")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 text-right cursor-pointer hover:bg-slate-200/80 transition-colors"
-                  title="Ordenar per Base"
-                >
-                  <span>Base</span>
-                  {renderSortIcon("base_imposable")}
-                </th>
-                <th 
-                  onClick={() => handleSort("total_factura")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 text-right font-black cursor-pointer hover:bg-slate-200/80 transition-colors"
-                  title="Ordenar per Total Factura"
-                >
-                  <span>Total Factura</span>
-                  {renderSortIcon("total_factura")}
-                </th>
-                
+                {sortTh({ sortId: "ndoc_a3", label: "Doc A3", title: "Ordenar per Doc A3", className: "border-slate-200 hover:bg-slate-200/80" })}
+                {sortTh({ sortId: "factura", label: "Factura", title: "Ordenar per Factura", className: "border-slate-200 hover:bg-slate-200/80" })}
+                {sortTh({ sortId: "proveidor", label: "Proveïdor", title: "Ordenar per Proveïdor", className: "border-slate-200 hover:bg-slate-200/80" })}
+                {sortTh({ sortId: "partida_id", label: "Partida", title: "Ordenar per Partida", className: "border-slate-200 hover:bg-slate-200/80" })}
+                {sortTh({ sortId: "data_emissio", label: "Data", title: "Ordenar per Data", className: "border-slate-200 hover:bg-slate-200/80" })}
+                {sortTh({ sortId: "base_imposable", label: "Base", title: "Ordenar per Base", className: "border-slate-200 hover:bg-slate-200/80", align: "right" })}
+                {sortTh({ sortId: "total_factura", label: "Total Factura", title: "Ordenar per Total Factura", className: "border-slate-200 hover:bg-slate-200/80 font-black", align: "right" })}
+
                 {/* Control columns */}
-                <th 
-                  onClick={() => handleSort("cobert")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 text-right bg-emerald-50 text-emerald-800 cursor-pointer hover:bg-emerald-100 transition-colors"
-                  title="Ordenar per Cobert"
-                >
-                  <span>Cobert (€)</span>
-                  {renderSortIcon("cobert")}
-                </th>
-                <th 
-                  onClick={() => handleSort("disponible")}
-                  className="py-2 px-3 whitespace-nowrap border-r border-slate-200 text-right bg-amber-50 text-amber-800 cursor-pointer hover:bg-amber-100 transition-colors"
-                  title="Ordenar per Disponible"
-                >
-                  <span>Disponible (€)</span>
-                  {renderSortIcon("disponible")}
-                </th>
+                {sortTh({ sortId: "cobert", label: "Cobert (€)", title: "Ordenar per Cobert", className: "border-slate-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100", align: "right" })}
+                {sortTh({ sortId: "disponible", label: "Disponible (€)", title: "Ordenar per Disponible", className: "border-slate-200 bg-amber-50 text-amber-800 hover:bg-amber-100", align: "right" })}
 
                 {/* Project columns (% and €) */}
-                {activeProjects.map(p => (
-                  <React.Fragment key={p.id}>
-                    <th 
-                      onClick={() => handleSort(`p_perc_${p.id}`)}
-                      className="py-2 px-2 whitespace-nowrap border-r border-slate-100 text-center bg-sky-50/50 text-sky-700 cursor-pointer hover:bg-sky-100 transition-colors"
-                      title={`Ordenar per % de ${p.codi}`}
-                    >
-                      <span>% {p.codi}</span>
-                      {renderSortIcon(`p_perc_${p.id}`)}
-                    </th>
-                    <th 
-                      onClick={() => handleSort(`p_imp_${p.id}`)}
-                      className="py-2 px-2 whitespace-nowrap border-r border-slate-200 text-right bg-sky-50/50 text-sky-900 cursor-pointer hover:bg-sky-100 transition-colors"
-                      title={`Ordenar per Import de ${p.codi}`}
-                    >
-                      <span>Import (€)</span>
-                      {renderSortIcon(`p_imp_${p.id}`)}
-                    </th>
-                  </React.Fragment>
-                ))}
+                {matrixProjects.map(p => {
+                  const muted = p.tancat || p.desconegut;
+                  return (
+                    <React.Fragment key={p.id}>
+                      {sortTh({
+                        sortId: `p_perc_${p.id}`,
+                        label: `% ${p.codi}`,
+                        title: `Ordenar per % de ${projectLabel(p)}`,
+                        className: `border-slate-100 ${muted ? "bg-slate-100 text-slate-500 hover:bg-slate-200" : "bg-sky-50/50 text-sky-700 hover:bg-sky-100"}`,
+                        align: "center",
+                      })}
+                      {sortTh({
+                        sortId: `p_imp_${p.id}`,
+                        label: "Import (€)",
+                        title: `Ordenar per Import de ${projectLabel(p)}`,
+                        className: `border-slate-200 ${muted ? "bg-slate-100 text-slate-600 hover:bg-slate-200" : "bg-sky-50/50 text-sky-900 hover:bg-sky-100"}`,
+                        align: "right",
+                      })}
+                    </React.Fragment>
+                  );
+                })}
               </tr>
             </thead>
 
-            {/* Data rows */}
+            {/* Data rows (pàgina actual) */}
             <tbody className="divide-y divide-slate-100">
-              {sortedDespeses.map(d => {
+              {pageRows.map(d => {
                 const imps = impsByDespesa.get(d.id);
                 const impsPerc = impsPercentByDespesa.get(d.id);
                 const cobert = d.import_total;
-                const disponible = Math.max(0, d.total_factura - cobert);
+                const disponible = disponibleOf(d);
+                const senseCorrespondencia = !d.partida_id || d.partida_id === SENSE_CORRESPONDENCIA;
+                const partidaDesconeguda = !senseCorrespondencia && !partidaIds.has(d.partida_id);
 
                 return (
                   <tr key={d.id} className="hover:bg-slate-50 transition-colors">
@@ -343,45 +481,54 @@ export default function MatriuPage() {
                       {d.proveidor}
                     </td>
                     <td className="py-2 px-3 text-slate-600 border-r border-slate-100 whitespace-nowrap">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[11px] font-semibold">
-                        {d.partida_id}
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
+                          senseCorrespondencia
+                            ? "bg-amber-100 text-amber-800"
+                            : partidaDesconeguda
+                            ? "bg-rose-100 text-rose-700"
+                            : "bg-slate-100"
+                        }`}
+                        title={senseCorrespondencia ? "Sense correspondència" : partidaDesconeguda ? "Partida que no existeix al catàleg" : undefined}
+                      >
+                        {senseCorrespondencia ? "Sense correspondència" : d.partida_id}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-slate-500 border-r border-slate-100 whitespace-nowrap text-[11px]">
                       {d.data_emissio || "-"}
                     </td>
-                    <td className="py-2 px-3 text-right text-slate-600 border-r border-slate-100 whitespace-nowrap">
-                      {d.base_imposable.toFixed(2)} €
+                    <td className={`py-2 px-3 text-right border-r border-slate-100 whitespace-nowrap ${d.base_imposable < 0 ? "text-rose-600" : "text-slate-600"}`}>
+                      {fmtEur(d.base_imposable)}
                     </td>
-                    <td className="py-2 px-3 text-right font-bold text-slate-900 border-r border-slate-200 whitespace-nowrap">
-                      {d.total_factura.toFixed(2)} €
+                    <td className={`py-2 px-3 text-right font-bold border-r border-slate-200 whitespace-nowrap ${d.total_factura < 0 ? "text-rose-600" : "text-slate-900"}`}>
+                      {fmtEur(d.total_factura)}
                     </td>
 
                     {/* Cobert & Disponible */}
-                    <td className="py-2 px-3 text-right font-semibold text-emerald-700 bg-emerald-50/30 border-r border-slate-100 whitespace-nowrap">
-                      {cobert.toFixed(2)} €
+                    <td className={`py-2 px-3 text-right font-semibold bg-emerald-50/30 border-r border-slate-100 whitespace-nowrap ${cobert < 0 ? "text-rose-600" : "text-emerald-700"}`}>
+                      {fmtEur(cobert)}
                     </td>
-                    <td className="py-2 px-3 text-right font-semibold text-amber-700 bg-amber-50/30 border-r border-slate-200 whitespace-nowrap">
-                      {disponible.toFixed(2)} €
+                    <td className={`py-2 px-3 text-right font-semibold bg-amber-50/30 border-r border-slate-200 whitespace-nowrap ${disponible < 0 ? "text-rose-600" : "text-amber-700"}`}>
+                      {fmtEur(disponible)}
                     </td>
 
                     {/* Project Allocations */}
-                    {activeProjects.map(p => {
+                    {matrixProjects.map(p => {
                       const perc = impsPerc?.get(p.id) || 0;
                       const val = imps?.get(p.id) || 0;
 
                       return (
                         <React.Fragment key={p.id}>
                           <td className="py-2 px-2 text-center text-slate-500 border-r border-slate-100 whitespace-nowrap">
-                            {perc > 0 ? (
-                              <span className="font-bold text-sky-700">{perc}%</span>
+                            {perc !== 0 ? (
+                              <span className={`font-bold ${perc < 0 ? "text-rose-600" : "text-sky-700"}`}>{fmtPerc(perc)}</span>
                             ) : (
                               <span className="text-slate-300">-</span>
                             )}
                           </td>
                           <td className="py-2 px-2 text-right font-medium text-slate-700 border-r border-slate-200 whitespace-nowrap">
-                            {val > 0 ? (
-                              <span className="font-bold text-slate-900">{val.toFixed(2)} €</span>
+                            {val !== 0 ? (
+                              <span className={`font-bold ${val < 0 ? "text-rose-600" : "text-slate-900"}`}>{fmtEur(val)}</span>
                             ) : (
                               <span className="text-slate-300">-</span>
                             )}
@@ -393,18 +540,28 @@ export default function MatriuPage() {
                 );
               })}
 
-              {sortedDespeses.length === 0 && (
+              {totalRows === 0 && (
                 <tr>
-                  <td colSpan={9 + activeProjects.length * 2} className="py-12 text-center text-slate-400">
+                  <td colSpan={9 + matrixProjects.length * 2} className="py-12 text-center text-slate-400">
                     <Table2 className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-sm">No s'han trobat dades a la matriu</p>
-                    <p className="text-xs text-slate-400 mt-1">Puja un fitxer d'A3 per visualitzar la matriu de justificacions.</p>
+                    {despeses.length === 0 ? (
+                      <p className="text-xs text-slate-400 mt-1">Puja un fitxer d'A3 per visualitzar la matriu de justificacions.</p>
+                    ) : (
+                      <p className="text-xs text-slate-400 mt-1">
+                        Cap factura coincideix amb la cerca o la partida seleccionada.{" "}
+                        <button type="button" onClick={clearFilters} className="text-emerald-600 font-semibold hover:underline">
+                          Netejar filtres
+                        </button>
+                      </p>
+                    )}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {totalRows > PAGE_SIZE && renderPagination()}
       </div>
     </div>
   );

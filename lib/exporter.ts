@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { Despesa, Imputacio, Projecte, Partida } from "./types";
+import { disponibleOf } from "./sync_utils";
 
 const BASE_HEADERS = [
   "NUM. APUNTE",
@@ -41,6 +42,19 @@ function uniqueSheetName(raw: string, used: Set<string>): string {
   return name;
 }
 
+const cents = (n: number) => Math.round(n * 100);
+
+/** Excel number formats for a range of columns, from a given row to the end of the sheet. */
+function formatColumns(ws: XLSX.WorkSheet, fromRow: number, cols: number[], format: string) {
+  const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+  for (let r = fromRow; r <= range.e.r; r++) {
+    for (const c of cols) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cell && cell.t === "n") cell.z = format;
+    }
+  }
+}
+
 export function exportJustificacionsExcel(
   despeses: Despesa[],
   imputacions: Imputacio[],
@@ -61,7 +75,7 @@ export function exportJustificacionsExcel(
 
   // Active projects, plus closed ones that still have imputations (otherwise TOTAL COBERT
   // would include amounts with no project column)
-  const imputedProjectIds = new Set(imputacions.filter(imp => imp.percentatge > 0 || imp.import > 0).map(imp => imp.projecte_id));
+  const imputedProjectIds = new Set(imputacions.filter(imp => imp.percentatge > 0 || imp.import !== 0).map(imp => imp.projecte_id));
   const activeProjects = projectes.filter(p => p.actiu || imputedProjectIds.has(p.id));
 
   // Group despeses by Partida
@@ -94,14 +108,17 @@ export function exportJustificacionsExcel(
     let partCost = 0;
     let partFact = 0;
     let partCobert = 0;
+    let partDisp = 0;
+    let excedides = 0;
 
     for (const d of list) {
       partCost += d.cost_total;
       partFact += d.total_factura;
       partCobert += d.import_total;
+      partDisp += disponibleOf(d);
+      if (d.estat === "excedida") excedides++;
     }
 
-    const partDisp = Math.max(0, partFact - partCobert);
     sumCostTotal += partCost;
     sumTotalFactura += partFact;
     sumCobert += partCobert;
@@ -115,7 +132,9 @@ export function exportJustificacionsExcel(
       Math.round(partFact * 100) / 100,
       Math.round(partCobert * 100) / 100,
       Math.round(partDisp * 100) / 100,
-      partFact > 0 && Math.abs(partFact - partCobert) < 0.01 ? "Completat 100%" : (partCobert > partFact ? "ALERTA >100%" : "En curs")
+      excedides > 0
+        ? `ALERTA: ${excedides} factures >100%`
+        : partFact !== 0 && cents(partDisp) === 0 ? "Completat 100%" : "En curs"
     ]);
   }
 
@@ -132,6 +151,7 @@ export function exportJustificacionsExcel(
   ]);
 
   const wsResum = XLSX.utils.aoa_to_sheet(resumData);
+  formatColumns(wsResum, 4, [3, 4, 5, 6], "#,##0.00");
   const usedSheetNames = new Set<string>();
   XLSX.utils.book_append_sheet(wb, wsResum, uniqueSheetName("Resum Panel", usedSheetNames));
 
@@ -202,7 +222,7 @@ export function exportJustificacionsExcel(
     for (const d of list) {
       const dImputacions = imputacionsMap.get(d.id);
       const totalCobert = d.import_total;
-      const totalDisponible = Math.max(0, d.total_factura - totalCobert);
+      const totalDisponible = disponibleOf(d);
 
       const dRow: any[] = [
         d.numapunte,
@@ -235,7 +255,7 @@ export function exportJustificacionsExcel(
       // Append project pairs
       for (const p of activeProjects) {
         const imp = dImputacions?.get(p.id);
-        if (imp && imp.percentatge > 0) {
+        if (imp && (imp.percentatge > 0 || imp.import !== 0)) {
           dRow.push(imp.percentatge / 100); // format as fraction for Excel %
           dRow.push(imp.import);
         } else {
@@ -248,8 +268,18 @@ export function exportJustificacionsExcel(
     }
 
     const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+    // Amounts and percentages of the data rows (they start after the 7 header rows)
+    const amountCols = [18, 19, 20, 21, 22, 23, 24];
+    const pctCols: number[] = [];
+    activeProjects.forEach((_, i) => {
+      pctCols.push(BASE_HEADERS.length + i * 2);
+      amountCols.push(BASE_HEADERS.length + i * 2 + 1);
+    });
+    formatColumns(ws, 7, amountCols, "#,##0.00");
+    formatColumns(ws, 7, pctCols, "0.00%");
     XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
   }
 
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  // "array" works in the browser ("buffer" needs Node's Buffer)
+  return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
 }

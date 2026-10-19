@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { 
   History, 
   Search, 
@@ -31,6 +31,8 @@ import { LogEntry } from "@/lib/types";
 type LogFilterType = "all" | LogEntry["tipus"];
 type SortOrder = "desc" | "asc";
 
+const PAGE_SIZE = 50;
+
 export default function HistorialPage() {
   const { historial, addManualLog, updateLogComentari, deleteLogEntry } = useJustificacions();
 
@@ -47,6 +49,23 @@ export default function HistorialPage() {
   const [newTitol, setNewTitol] = useState("");
   const [newDetall, setNewDetall] = useState("");
   const [newComentari, setNewComentari] = useState("");
+
+  // Pagination ("Carregar més")
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filterType, searchTerm, sortOrder]);
+
+  // Close modal with Escape
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isModalOpen]);
 
   // Filter and sort entries
   const filteredEntries = useMemo(() => {
@@ -72,6 +91,11 @@ export default function HistorialPage() {
         return sortOrder === "desc" ? timeB - timeA : timeA - timeB;
       });
   }, [historial, filterType, searchTerm, sortOrder]);
+
+  const visibleEntries = useMemo(
+    () => filteredEntries.slice(0, visibleCount),
+    [filteredEntries, visibleCount]
+  );
 
   // Statistics
   const stats = useMemo(() => {
@@ -196,7 +220,7 @@ export default function HistorialPage() {
                 Historial de Canvis i Traçabilitat
               </h1>
               <p className="text-xs sm:text-sm text-slate-500">
-                Registre permanent de modificacions, volcats d&apos;A3 i notes justificatives per a auditories.
+                Registre de modificacions, volcats d&apos;A3 i notes justificatives per a auditories. Les eliminacions d&apos;entrades també queden registrades.
               </p>
             </div>
           </div>
@@ -213,9 +237,11 @@ export default function HistorialPage() {
 
       {/* Summary Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-        <div 
+        <button
+          type="button"
+          aria-pressed={filterType === "all"}
           onClick={() => setFilterType("all")}
-          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+          className={`text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer p-3 rounded-xl border transition-all ${
             filterType === "all" ? "bg-emerald-50 border-emerald-300 ring-2 ring-emerald-500/20" : "bg-white border-slate-200 hover:border-slate-300"
           }`}
         >
@@ -224,11 +250,13 @@ export default function HistorialPage() {
             <History className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-xl font-bold text-slate-900 mt-1">{stats.total}</p>
-        </div>
+        </button>
 
-        <div 
+        <button
+          type="button"
+          aria-pressed={filterType === "imputacio"}
           onClick={() => setFilterType("imputacio")}
-          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+          className={`text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer p-3 rounded-xl border transition-all ${
             filterType === "imputacio" ? "bg-blue-50 border-blue-300 ring-2 ring-blue-500/20" : "bg-white border-slate-200 hover:border-slate-300"
           }`}
         >
@@ -237,11 +265,13 @@ export default function HistorialPage() {
             <Receipt className="w-4 h-4 text-blue-600" />
           </div>
           <p className="text-xl font-bold text-blue-700 mt-1">{stats.imputacions}</p>
-        </div>
+        </button>
 
-        <div 
+        <button
+          type="button"
+          aria-pressed={filterType === "importacio_a3"}
           onClick={() => setFilterType("importacio_a3")}
-          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+          className={`text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer p-3 rounded-xl border transition-all ${
             filterType === "importacio_a3" ? "bg-emerald-50 border-emerald-300 ring-2 ring-emerald-500/20" : "bg-white border-slate-200 hover:border-slate-300"
           }`}
         >
@@ -250,11 +280,13 @@ export default function HistorialPage() {
             <UploadCloud className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-xl font-bold text-emerald-700 mt-1">{stats.volcats}</p>
-        </div>
+        </button>
 
-        <div 
+        <button
+          type="button"
+          aria-pressed={filterType === "projecte"}
           onClick={() => setFilterType("projecte")}
-          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+          className={`text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer p-3 rounded-xl border transition-all ${
             filterType === "projecte" ? "bg-purple-50 border-purple-300 ring-2 ring-purple-500/20" : "bg-white border-slate-200 hover:border-slate-300"
           }`}
         >
@@ -263,11 +295,13 @@ export default function HistorialPage() {
             <Briefcase className="w-4 h-4 text-purple-600" />
           </div>
           <p className="text-xl font-bold text-purple-700 mt-1">{stats.projectes}</p>
-        </div>
+        </button>
 
-        <div 
+        <button
+          type="button"
+          aria-pressed={filterType === "partida"}
           onClick={() => setFilterType("partida")}
-          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+          className={`text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer p-3 rounded-xl border transition-all ${
             filterType === "partida" ? "bg-teal-50 border-teal-300 ring-2 ring-teal-500/20" : "bg-white border-slate-200 hover:border-slate-300"
           }`}
         >
@@ -276,11 +310,13 @@ export default function HistorialPage() {
             <FolderTree className="w-4 h-4 text-teal-600" />
           </div>
           <p className="text-xl font-bold text-teal-700 mt-1">{stats.partides}</p>
-        </div>
+        </button>
 
-        <div 
+        <button
+          type="button"
+          aria-pressed={filterType === "equivalencia"}
           onClick={() => setFilterType("equivalencia")}
-          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+          className={`text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer p-3 rounded-xl border transition-all ${
             filterType === "equivalencia" ? "bg-amber-50 border-amber-300 ring-2 ring-amber-500/20" : "bg-white border-slate-200 hover:border-slate-300"
           }`}
         >
@@ -289,11 +325,13 @@ export default function HistorialPage() {
             <ArrowLeftRight className="w-4 h-4 text-amber-600" />
           </div>
           <p className="text-xl font-bold text-amber-700 mt-1">{stats.equivalencies}</p>
-        </div>
+        </button>
 
-        <div 
+        <button
+          type="button"
+          aria-pressed={filterType === "nota_manual"}
           onClick={() => setFilterType("nota_manual")}
-          className={`cursor-pointer p-3 rounded-xl border transition-all ${
+          className={`text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer p-3 rounded-xl border transition-all ${
             filterType === "nota_manual" ? "bg-slate-100 border-slate-400 ring-2 ring-slate-500/20" : "bg-white border-slate-200 hover:border-slate-300"
           }`}
         >
@@ -302,7 +340,7 @@ export default function HistorialPage() {
             <MessageSquare className="w-4 h-4 text-slate-600" />
           </div>
           <p className="text-xl font-bold text-slate-800 mt-1">{stats.notes}</p>
-        </div>
+        </button>
       </div>
 
       {/* Filter Toolbar & Search */}
@@ -321,6 +359,7 @@ export default function HistorialPage() {
             <button 
               onClick={() => setSearchTerm("")}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              aria-label="Esborrar cerca"
             >
               <X className="w-4 h-4" />
             </button>
@@ -351,7 +390,7 @@ export default function HistorialPage() {
             </p>
           </div>
         ) : (
-          filteredEntries.map((entry) => {
+          visibleEntries.map((entry) => {
             const badge = getTypeBadge(entry.tipus);
             const Icon = badge.icon;
             const isEditingThis = editingId === entry.id;
@@ -399,12 +438,13 @@ export default function HistorialPage() {
 
                     <button
                       onClick={() => {
-                        if (confirm("Vols eliminar aquesta entrada de l'historial?")) {
+                        if (confirm("Vols eliminar aquesta entrada de l'historial?\n\nQuedarà constància de l'eliminació en una nova entrada d'auditoria.")) {
                           deleteLogEntry(entry.id);
                         }
                       }}
                       className="p-1 text-slate-300 hover:text-rose-500 rounded transition-colors"
                       title="Eliminar entrada"
+                      aria-label="Eliminar entrada de l'historial"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -465,6 +505,7 @@ export default function HistorialPage() {
                         onClick={() => handleStartEditComment(entry)}
                         className="p-1 rounded text-amber-600 hover:text-amber-800 hover:bg-amber-100/50 transition-colors ml-2"
                         title="Modificar comentari"
+                        aria-label="Modificar comentari"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
@@ -485,24 +526,45 @@ export default function HistorialPage() {
             );
           })
         )}
+
+        {filteredEntries.length > visibleCount && (
+          <div className="flex flex-col items-center gap-1 pt-2">
+            <button
+              type="button"
+              onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs sm:text-sm font-semibold text-slate-700 shadow-sm transition-colors"
+            >
+              Carregar més ({Math.min(PAGE_SIZE, filteredEntries.length - visibleCount)})
+            </button>
+            <span className="text-[11px] text-slate-400">
+              Mostrant {visibleCount} de {filteredEntries.length} registres
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Modal: Add Manual Note */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="nota-modal-title"
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200"
+          >
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
               <div className="flex items-center space-x-2">
                 <div className="p-1.5 bg-emerald-100 text-emerald-800 rounded-lg">
                   <FileText className="w-4 h-4" />
                 </div>
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 id="nota-modal-title" className="text-base font-bold text-slate-900">
                   Nova Nota Manual d&apos;Auditoria
                 </h3>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                aria-label="Tancar"
               >
                 <X className="w-5 h-5" />
               </button>

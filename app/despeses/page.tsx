@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useState, useMemo, useEffect, useRef, Suspense } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { 
   Search, 
   Receipt, 
@@ -46,16 +46,38 @@ type SortField =
 
 type SortOrder = "asc" | "desc";
 
+const GROUP_PAGE_SIZE = 50;
+
+// Same criterion everywhere: "0" and "1" are A3 placeholders, not real flats
+const isValidPis = (pis?: string | null): pis is string => !!pis && pis !== "0" && pis !== "1";
+
+// 1-decimal percentage that never shows a rounded 100% / 0% unless it really is
+const fmtPct = (value?: number | null) => {
+  const n = value ?? 0;
+  const cents = Math.round(n * 100);
+  if (cents === 10000) return "100";
+  let r = Math.round(n * 10) / 10;
+  if (r === 100) r = cents < 10000 ? 99.9 : 100.1;
+  if (r === 0 && cents !== 0) r = cents > 0 ? 0.1 : -0.1;
+  return r.toLocaleString("ca-ES", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+};
+
+const fmtEur = (value?: number | null) =>
+  (value ?? 0).toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function DespesesContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const initialFilter = searchParams.get("filter") || "tots";
-  const initialProjecte = searchParams.get("projecte") || "tots";
+  const projParam = searchParams.get("projecte");
 
-  const { 
-    despeses, 
-    imputacions, 
-    partides, 
+  const {
+    despeses,
+    imputacions,
+    partides,
     projectes,
+    activeExercici,
     bulkAssignPartida,
     bulkImputar,
     bulkResetImputacions,
@@ -63,14 +85,21 @@ function DespesesContent() {
   } = useJustificacions();
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedProjecte, setSelectedProjecte] = useState(initialProjecte);
+  const [selectedProjecte, setSelectedProjecte] = useState("tots");
   const [selectedPartida, setSelectedPartida] = useState("totes");
   const [selectedEstat, setSelectedEstat] = useState(initialFilter);
+  // ?filter= follows the URL (e.g. from a dashboard link back to /despeses without filter)
+  const filterParam = searchParams.get("filter");
+  useEffect(() => {
+    setSelectedEstat(filterParam || "tots");
+  }, [filterParam]);
   const [selectedPis, setSelectedPis] = useState("tots");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDespesa, setSelectedDespesa] = useState<Despesa | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"partides" | "taula">(initialProjecte !== "tots" ? "partides" : "taula");
+  const [viewMode, setViewMode] = useState<"partides" | "taula">(projParam ? "partides" : "taula");
+  const [invalidProjParam, setInvalidProjParam] = useState<string | null>(null);
+  const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
 
   // Selection & Bulk Action States
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -79,15 +108,50 @@ function DespesesContent() {
   const [isBulkResetOpen, setIsBulkResetOpen] = useState(false);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
 
-  // Sync state if URL query param changes
+  // URL -> state for ?projecte= (accepts id or codi, normalised to id)
+  const appliedProjParam = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    const projParam = searchParams.get("projecte");
-    if (projParam) {
-      setSelectedProjecte(projParam);
-      setViewMode("partides");
-      setCurrentPage(1);
+    if (appliedProjParam.current === projParam) return;
+    if (!projParam) {
+      appliedProjParam.current = projParam;
+      setInvalidProjParam(null);
+      setSelectedProjecte("tots");
+      return;
     }
-  }, [searchParams]);
+    if (projectes.length === 0) return; // wait for the catalog to load
+    appliedProjParam.current = projParam;
+    const match = projectes.find(p => p.id === projParam) || projectes.find(p => p.codi === projParam);
+    if (match) {
+      setInvalidProjParam(null);
+      setSelectedProjecte(match.id);
+      setViewMode("partides");
+    } else {
+      setInvalidProjParam(projParam);
+      setSelectedProjecte("tots");
+    }
+  }, [projParam, projectes]);
+
+  // State -> URL for ?projecte=
+  const changeProjecte = (id: string) => {
+    setSelectedProjecte(id);
+    setInvalidProjParam(null);
+    if (id !== "tots") setViewMode("partides");
+    const nextParam = id === "tots" ? null : id;
+    if (nextParam === projParam) return;
+    appliedProjParam.current = nextParam;
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextParam) params.set("projecte", nextParam);
+    else params.delete("projecte");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  // Any filter change (or exercici switch) drops the selection and resets paging
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setCurrentPage(1);
+    setGroupLimits({});
+  }, [searchTerm, selectedProjecte, selectedPartida, selectedEstat, selectedPis, activeExercici]);
 
   // Sorting state
   const [sortField, setSortField] = useState<SortField>("data_emissio");
@@ -119,16 +183,38 @@ function DespesesContent() {
   const uniquePisos = useMemo(() => {
     const set = new Set<string>();
     despeses.forEach(d => {
-      if (d.pis && d.pis !== "0" && d.pis !== "1") set.add(d.pis);
+      if (isValidPis(d.pis)) set.add(d.pis);
     });
     return Array.from(set).sort();
   }, [despeses]);
+
+  const projecteCodiById = useMemo(() => {
+    const map = new Map<string, string>();
+    projectes.forEach(p => map.set(p.id, p.codi || p.id));
+    return map;
+  }, [projectes]);
+
+  const projectesActius = useMemo(() => projectes.filter(p => p.actiu !== false), [projectes]);
+  const projectesTancats = useMemo(() => projectes.filter(p => p.actiu === false), [projectes]);
 
   // Find active project object
   const currentProject = useMemo(() => {
     if (selectedProjecte === "tots") return null;
     return projectes.find(p => p.id === selectedProjecte || p.codi === selectedProjecte) || null;
   }, [projectes, selectedProjecte]);
+
+  const projecteLabel = currentProject?.codi || selectedProjecte;
+
+  // despesa_id -> imputacions, built once instead of filtering per row
+  const imputacionsByDespesa = useMemo(() => {
+    const map = new Map<string, typeof imputacions>();
+    imputacions.forEach(imp => {
+      const list = map.get(imp.despesa_id);
+      if (list) list.push(imp);
+      else map.set(imp.despesa_id, [imp]);
+    });
+    return map;
+  }, [imputacions]);
 
   // Index allocations for this project
   const projectImputacionsMap = useMemo(() => {
@@ -157,11 +243,11 @@ function DespesesContent() {
 
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
-        const matchProv = d.proveidor.toLowerCase().includes(term);
-        const matchFra = d.factura.toLowerCase().includes(term);
-        const matchDoc = d.ndoc_a3.toLowerCase().includes(term);
-        const matchCif = d.cif.toLowerCase().includes(term);
-        const matchDesc = d.descripcio_linia.toLowerCase().includes(term);
+        const matchProv = (d.proveidor || "").toLowerCase().includes(term);
+        const matchFra = (d.factura || "").toLowerCase().includes(term);
+        const matchDoc = (d.ndoc_a3 || "").toLowerCase().includes(term);
+        const matchCif = (d.cif || "").toLowerCase().includes(term);
+        const matchDesc = (d.descripcio_linia || "").toLowerCase().includes(term);
         if (!matchProv && !matchFra && !matchDoc && !matchCif && !matchDesc) return false;
       }
 
@@ -196,8 +282,8 @@ function DespesesContent() {
     filtered.forEach(d => {
       const pId = d.partida_id || "SENSE_PARTIDA";
       const alloc = projectImputacionsMap.get(d.id) || {
-        percentatge: selectedProjecte === "tots" ? d.percentatge_total : 0,
-        import: selectedProjecte === "tots" ? d.import_total : 0
+        percentatge: selectedProjecte === "tots" ? (d.percentatge_total ?? 0) : 0,
+        import: selectedProjecte === "tots" ? (d.import_total ?? 0) : 0
       };
 
       if (!map.has(pId)) {
@@ -217,8 +303,8 @@ function DespesesContent() {
         projPercent: alloc.percentatge,
         projImport: alloc.import
       });
-      group.totalPartidaFactura += d.total_factura;
-      group.totalPartidaJustificat += alloc.import;
+      group.totalPartidaFactura += d.total_factura ?? 0;
+      group.totalPartidaJustificat += alloc.import ?? 0;
     });
 
     return Array.from(map.values()).sort((a, b) => a.partidaId.localeCompare(b.partidaId));
@@ -243,19 +329,62 @@ function DespesesContent() {
   }, [filtered, sortField, sortOrder]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage]);
+  const safePage = Math.min(currentPage, totalPages);
 
-  // Computed selection details
+  // Keep the page in range when the list shrinks (deletes, live sync...)
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const paginated = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, safePage]);
+
+  // Effective selection: only ids that exist and are visible with current filters
   const selectedExpenses = useMemo(() => {
-    return despeses.filter(d => selectedIds.has(d.id));
-  }, [despeses, selectedIds]);
+    if (selectedIds.size === 0) return [];
+    return filtered.filter(d => selectedIds.has(d.id));
+  }, [filtered, selectedIds]);
+
+  const effectiveSelectedIds = useMemo(() => selectedExpenses.map(d => d.id), [selectedExpenses]);
+  const selectedCount = effectiveSelectedIds.length;
 
   const selectedTotal = useMemo(() => {
-    return selectedExpenses.reduce((sum, d) => sum + d.total_factura, 0);
+    return selectedExpenses.reduce((sum, d) => sum + (d.total_factura ?? 0), 0);
   }, [selectedExpenses]);
+
+  const selectedWithImputacions = useMemo(() => {
+    return effectiveSelectedIds.filter(id => (imputacionsByDespesa.get(id)?.length ?? 0) > 0).length;
+  }, [effectiveSelectedIds, imputacionsByDespesa]);
+
+  // Selected rows per group, computed once per render cycle
+  const groupSelectedCount = useMemo(() => {
+    const map = new Map<string, number>();
+    if (selectedIds.size === 0) return map;
+    despesesByPartida.forEach(g => {
+      let n = 0;
+      g.despeses.forEach(d => { if (selectedIds.has(d.id)) n++; });
+      map.set(g.partidaId, n);
+    });
+    return map;
+  }, [despesesByPartida, selectedIds]);
+
+  const pageSelectedCount = useMemo(
+    () => paginated.reduce((n, d) => n + (selectedIds.has(d.id) ? 1 : 0), 0),
+    [paginated, selectedIds]
+  );
+
+  const toggleSelectGroup = (groupDespeses: Despesa[], allSelected: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      groupDespeses.forEach(d => {
+        if (allSelected) next.delete(d.id);
+        else next.add(d.id);
+      });
+      return next;
+    });
+  };
 
   // Selection handlers
   const toggleSelectOne = (id: string, e?: React.MouseEvent | React.ChangeEvent) => {
@@ -272,7 +401,7 @@ function DespesesContent() {
   };
 
   const toggleSelectPage = () => {
-    const allPageSelected = paginated.length > 0 && paginated.every(d => selectedIds.has(d.id));
+    const allPageSelected = paginated.length > 0 && pageSelectedCount === paginated.length;
     setSelectedIds(prev => {
       const next = new Set(prev);
       paginated.forEach(d => {
@@ -297,8 +426,9 @@ function DespesesContent() {
   };
 
   // Bulk action confirm handlers
+  // Bulk actions only touch selected ∩ filtered
   const handleBulkPartidaConfirm = (partidaId: string, comentari?: string) => {
-    bulkAssignPartida(Array.from(selectedIds), partidaId, comentari);
+    if (effectiveSelectedIds.length > 0) bulkAssignPartida(effectiveSelectedIds, partidaId, comentari);
     clearSelection();
     setIsBulkPartidaOpen(false);
   };
@@ -307,21 +437,31 @@ function DespesesContent() {
     allocations: { projecte_id: string; percentatge: number }[],
     comentari?: string
   ) => {
-    bulkImputar(Array.from(selectedIds), allocations, comentari);
+    if (effectiveSelectedIds.length > 0) bulkImputar(effectiveSelectedIds, allocations, comentari);
     clearSelection();
     setIsBulkImputarOpen(false);
   };
 
   const handleBulkResetConfirm = (comentari?: string) => {
-    bulkResetImputacions(Array.from(selectedIds), comentari);
+    if (effectiveSelectedIds.length > 0) bulkResetImputacions(effectiveSelectedIds, comentari);
     clearSelection();
     setIsBulkResetOpen(false);
   };
 
   const handleBulkDeleteConfirm = (comentari?: string) => {
-    bulkDeleteDespeses(Array.from(selectedIds), comentari);
+    if (effectiveSelectedIds.length > 0) bulkDeleteDespeses(effectiveSelectedIds, comentari);
     clearSelection();
     setIsBulkDeleteOpen(false);
+  };
+
+  const clearAllFilters = () => {
+    setSearchTerm("");
+    changeProjecte("tots");
+    setSelectedPartida("totes");
+    setSelectedEstat("tots");
+    setSelectedPis("tots");
+    setCurrentPage(1);
+    setViewMode("taula");
   };
 
   return (
@@ -387,7 +527,8 @@ function DespesesContent() {
 
             <button
               onClick={() => {
-                setSelectedProjecte("tots");
+                changeProjecte("tots");
+                setCurrentPage(1);
                 setViewMode("taula");
               }}
               className="px-3.5 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-semibold transition-colors flex items-center space-x-1.5"
@@ -418,12 +559,9 @@ function DespesesContent() {
           <div>
             <select
               value={selectedProjecte}
-              onChange={(e) => { 
-                setSelectedProjecte(e.target.value); 
-                setCurrentPage(1); 
-                if (e.target.value !== "tots") {
-                  setViewMode("partides");
-                }
+              onChange={(e) => {
+                changeProjecte(e.target.value);
+                setCurrentPage(1);
               }}
               className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                 selectedProjecte !== "tots" 
@@ -432,12 +570,30 @@ function DespesesContent() {
               }`}
             >
               <option value="tots">Tots els Projectes ({projectes.length})</option>
-              {projectes.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.codi} {p.financador ? `(${p.financador})` : ""}
-                </option>
-              ))}
+              {projectesActius.length > 0 && (
+                <optgroup label="Actius">
+                  {projectesActius.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.codi} {p.financador ? `(${p.financador})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {projectesTancats.length > 0 && (
+                <optgroup label="Tancats">
+                  {projectesTancats.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.codi} {p.financador ? `(${p.financador})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+            {invalidProjParam && (
+              <p className="text-[11px] text-amber-700 mt-1">
+                El projecte «{invalidProjParam}» de l&apos;enllaç no existeix.
+              </p>
+            )}
           </div>
 
           <div>
@@ -494,22 +650,14 @@ function DespesesContent() {
               Mostrant <strong>{filtered.length}</strong> factures
               {selectedProjecte !== "tots" && (
                 <span className="ml-1 text-emerald-700 font-semibold">
-                  al projecte <strong>{selectedProjecte}</strong>
+                  al projecte <strong>{projecteLabel}</strong>
                 </span>
               )}
             </span>
 
             {(searchTerm || selectedPartida !== "totes" || selectedEstat !== "tots" || selectedPis !== "tots" || selectedProjecte !== "tots") && (
               <button
-                onClick={() => {
-                  setSearchTerm("");
-                  setSelectedProjecte("tots");
-                  setSelectedPartida("totes");
-                  setSelectedEstat("tots");
-                  setSelectedPis("tots");
-                  setCurrentPage(1);
-                  setViewMode("taula");
-                }}
+                onClick={clearAllFilters}
                 className="text-emerald-600 hover:underline font-semibold"
               >
                 Netejar filtres
@@ -546,13 +694,13 @@ function DespesesContent() {
       </div>
 
       {/* Selection Info / Select All Banner */}
-      {selectedIds.size > 0 && (
+      {selectedCount > 0 && (
         <div className="bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-900 shadow-sm animate-in fade-in">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-semibold">
-              Tens <strong>{selectedIds.size}</strong> {selectedIds.size === 1 ? "factura seleccionada" : "factures seleccionades"} (Total: <strong>{selectedTotal.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €</strong>).
+              Tens <strong>{selectedCount}</strong> {selectedCount === 1 ? "factura seleccionada" : "factures seleccionades"} (Total: <strong>{fmtEur(selectedTotal)} €</strong>).
             </span>
-            {selectedIds.size < filtered.length && (
+            {selectedCount < filtered.length && (
               <button
                 onClick={selectAllFiltered}
                 className="font-bold underline text-emerald-700 hover:text-emerald-900 ml-1"
@@ -579,56 +727,50 @@ function DespesesContent() {
               <p className="text-base font-bold text-slate-800">No hi ha despeses per mostrar</p>
               <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
                 {selectedProjecte !== "tots" 
-                  ? `El projecte ${selectedProjecte} encara no té despeses imputades. Pots canviar a 'Tots els Projectes' per veure totes les factures i assignar-ne.` 
+                  ? `El projecte ${projecteLabel} encara no té despeses imputades. Pots canviar a 'Tots els Projectes' per veure totes les factures i assignar-ne.` 
                   : "No s'han trobat despeses amb els filtres seleccionats."}
               </p>
             </div>
           ) : (
-            despesesByPartida.map((group) => (
-              <div 
+            despesesByPartida.map((group) => {
+              const groupSize = group.despeses.length;
+              const groupSel = groupSelectedCount.get(group.partidaId) ?? 0;
+              const groupAllSelected = groupSize > 0 && groupSel === groupSize;
+              const groupSomeSelected = groupSel > 0 && !groupAllSelected;
+              const limit = groupLimits[group.partidaId] ?? GROUP_PAGE_SIZE;
+              const visibleRows = groupSize > limit ? group.despeses.slice(0, limit) : group.despeses;
+              const hiddenRows = groupSize - visibleRows.length;
+              const groupCheckbox = (title: string) => (
+                <input
+                  type="checkbox"
+                  checked={groupAllSelected}
+                  ref={el => { if (el) el.indeterminate = groupSomeSelected; }}
+                  onChange={() => toggleSelectGroup(group.despeses, groupAllSelected)}
+                  className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  title={title}
+                  aria-label={title}
+                />
+              );
+
+              return (
+              <div
                 key={group.partidaId}
                 className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden transition-all hover:border-slate-300"
               >
                 {/* Partida Header Card */}
                 <div className="bg-slate-50/80 px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      checked={group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id))}
-                      ref={el => {
-                        if (el) {
-                          const some = group.despeses.some(d => selectedIds.has(d.id));
-                          const all = group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id));
-                          el.indeterminate = some && !all;
-                        }
-                      }}
-                      onChange={() => {
-                        const allSelected = group.despeses.every(d => selectedIds.has(d.id));
-                        setSelectedIds(prev => {
-                          const next = new Set(prev);
-                          group.despeses.forEach(d => {
-                            if (allSelected) {
-                              next.delete(d.id);
-                            } else {
-                              next.add(d.id);
-                            }
-                          });
-                          return next;
-                        });
-                      }}
-                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                      title="Seleccionar / deseleccionar totes les factures d'aquesta partida"
-                    />
+                    {groupCheckbox("Seleccionar / deseleccionar totes les factures d'aquesta partida")}
                     <div className="p-2 rounded-xl bg-emerald-100 text-emerald-800 font-bold text-xs">
                       {group.partidaId.substring(0, 2) === "DD" ? "DD" : "P"}
                     </div>
                     <div>
                       <div className="flex items-center space-x-2">
                         <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                          {group.partidaId}
+                          {group.partidaObj?.codi || group.partidaId}
                         </h3>
                         <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-xs font-semibold">
-                          {group.despeses.length} {group.despeses.length === 1 ? "factura" : "factures"}
+                          {groupSize} {groupSize === 1 ? "factura" : "factures"}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
@@ -638,15 +780,23 @@ function DespesesContent() {
                   </div>
 
                   {/* Partida totals badge */}
-                  <div className="flex items-center space-x-4 self-start sm:self-auto">
+                  <div className="flex items-center space-x-5 self-start sm:self-auto">
                     <div className="text-right">
                       <span className="text-[11px] font-medium text-slate-500 block">
-                        {selectedProjecte !== "tots" ? `Justificat a ${selectedProjecte}:` : "Total Facturat Partida:"}
+                        Total facturat:
+                      </span>
+                      <span className="text-base font-bold text-slate-800">
+                        {fmtEur(group.totalPartidaFactura)} €
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[11px] font-medium text-slate-500 block">
+                        {selectedProjecte !== "tots" ? `Justificat a ${projecteLabel}:` : "Total justificat:"}
                       </span>
                       <span className="text-base font-black text-emerald-700">
-                        {group.totalPartidaJustificat.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                        {fmtEur(group.totalPartidaJustificat)} €
                       </span>
-                      {selectedProjecte !== "tots" && totalJustificatProjecte > 0 && (
+                      {selectedProjecte !== "tots" && totalJustificatProjecte !== 0 && (
                         <span className="text-[10px] text-slate-400 block">
                           ({((group.totalPartidaJustificat / totalJustificatProjecte) * 100).toFixed(1)}% del projecte)
                         </span>
@@ -661,33 +811,7 @@ function DespesesContent() {
                     <thead>
                       <tr className="border-b border-slate-100 text-slate-500 font-semibold text-xs bg-slate-50/40 uppercase tracking-wider">
                         <th className="py-2.5 px-3 w-10 text-center">
-                          <input
-                            type="checkbox"
-                            checked={group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id))}
-                            ref={el => {
-                              if (el) {
-                                const some = group.despeses.some(d => selectedIds.has(d.id));
-                                const all = group.despeses.length > 0 && group.despeses.every(d => selectedIds.has(d.id));
-                                el.indeterminate = some && !all;
-                              }
-                            }}
-                            onChange={() => {
-                              const allSelected = group.despeses.every(d => selectedIds.has(d.id));
-                              setSelectedIds(prev => {
-                                const next = new Set(prev);
-                                group.despeses.forEach(d => {
-                                  if (allSelected) {
-                                    next.delete(d.id);
-                                  } else {
-                                    next.add(d.id);
-                                  }
-                                });
-                                return next;
-                              });
-                            }}
-                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                            title="Seleccionar totes les d'aquesta partida"
-                          />
+                          {groupCheckbox("Seleccionar totes les d'aquesta partida")}
                         </th>
                         <th className="py-2.5 px-4">Doc A3 / Factura</th>
                         <th className="py-2.5 px-4">Data</th>
@@ -695,16 +819,16 @@ function DespesesContent() {
                         <th className="py-2.5 px-4">Immoble / Pis</th>
                         <th className="py-2.5 px-4 text-right">Total Factura</th>
                         <th className="py-2.5 px-4 text-right">
-                          {selectedProjecte !== "tots" ? `Imputat a ${selectedProjecte}` : "Total Imputat"}
+                          {selectedProjecte !== "tots" ? `Imputat a ${projecteLabel}` : "Total Imputat"}
                         </th>
                         <th className="py-2.5 px-4 text-center">Estat Factura</th>
                         <th className="py-2.5 px-4 text-center">Acció</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {group.despeses.map((d) => (
-                        <tr 
-                          key={d.id} 
+                      {visibleRows.map((d) => (
+                        <tr
+                          key={d.id}
                           className={`transition-colors cursor-pointer ${
                             selectedIds.has(d.id) ? "bg-emerald-50/70 hover:bg-emerald-100/60" : "hover:bg-slate-50/80"
                           }`}
@@ -716,6 +840,7 @@ function DespesesContent() {
                               checked={selectedIds.has(d.id)}
                               onChange={(e) => toggleSelectOne(d.id, e)}
                               className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                              aria-label={`Seleccionar factura ${d.ndoc_a3 || ""}`}
                             />
                           </td>
                           <td className="py-3 px-4 font-mono font-bold text-slate-900">
@@ -739,7 +864,7 @@ function DespesesContent() {
                             </div>
                           </td>
                           <td className="py-3 px-4 text-slate-600 text-xs">
-                            {d.pis && d.pis !== "0" && d.pis !== "1" ? (
+                            {isValidPis(d.pis) ? (
                               <span className="px-2 py-0.5 rounded bg-slate-100 font-medium">
                                 {d.pis}
                               </span>
@@ -748,14 +873,14 @@ function DespesesContent() {
                             )}
                           </td>
                           <td className="py-3 px-4 text-right font-bold text-slate-900">
-                            {d.total_factura.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €
+                            {fmtEur(d.total_factura)} €
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="font-black text-emerald-700">
-                              {d.projImport.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €
+                              {fmtEur(d.projImport)} €
                             </div>
                             <div className="text-[11px] text-slate-500 font-semibold">
-                              {d.projPercent.toFixed(1)} %
+                              {fmtPct(d.projPercent)} %
                             </div>
                           </td>
                           <td className="py-3 px-4 text-center">
@@ -788,8 +913,33 @@ function DespesesContent() {
                     </tbody>
                   </table>
                 </div>
+
+                {hiddenRows > 0 && (
+                  <div className="flex flex-wrap items-center justify-center gap-3 px-6 py-3 border-t border-slate-100 bg-slate-50/60 text-xs">
+                    <span className="text-slate-500">
+                      Mostrant {visibleRows.length} de {groupSize} factures
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setGroupLimits(prev => ({ ...prev, [group.partidaId]: limit + GROUP_PAGE_SIZE }))}
+                      className="font-semibold text-emerald-700 hover:underline"
+                    >
+                      Mostrar {Math.min(GROUP_PAGE_SIZE, hiddenRows)} més
+                    </button>
+                    {hiddenRows > GROUP_PAGE_SIZE && (
+                      <button
+                        type="button"
+                        onClick={() => setGroupLimits(prev => ({ ...prev, [group.partidaId]: groupSize }))}
+                        className="font-semibold text-slate-600 hover:underline"
+                      >
+                        Mostrar totes ({groupSize})
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -804,17 +954,14 @@ function DespesesContent() {
                 <th className="py-3.5 px-3 w-10 text-center">
                   <input
                     type="checkbox"
-                    checked={paginated.length > 0 && paginated.every(d => selectedIds.has(d.id))}
+                    checked={paginated.length > 0 && pageSelectedCount === paginated.length}
                     ref={el => {
-                      if (el) {
-                        const some = paginated.some(d => selectedIds.has(d.id));
-                        const all = paginated.length > 0 && paginated.every(d => selectedIds.has(d.id));
-                        el.indeterminate = some && !all;
-                      }
+                      if (el) el.indeterminate = pageSelectedCount > 0 && pageSelectedCount < paginated.length;
                     }}
                     onChange={toggleSelectPage}
                     className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                     title="Seleccionar / deseleccionar totes les d'aquesta pàgina"
+                    aria-label="Seleccionar / deseleccionar totes les d'aquesta pàgina"
                   />
                 </th>
                 <th 
@@ -883,7 +1030,7 @@ function DespesesContent() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginated.map((despesa) => {
-                const despesaImps = imputacions.filter(i => i.despesa_id === despesa.id);
+                const despesaImps = imputacionsByDespesa.get(despesa.id) ?? [];
 
                 return (
                   <tr 
@@ -899,6 +1046,7 @@ function DespesesContent() {
                         checked={selectedIds.has(despesa.id)}
                         onChange={(e) => toggleSelectOne(despesa.id, e)}
                         className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                        aria-label={`Seleccionar factura ${despesa.ndoc_a3 || ""}`}
                       />
                     </td>
                     <td className="py-3 px-4">
@@ -928,7 +1076,7 @@ function DespesesContent() {
                       }`}>
                         {despesa.partida_id}
                       </span>
-                      {despesa.pis && despesa.pis !== "0" && (
+                      {isValidPis(despesa.pis) && (
                         <div className="text-xs text-slate-400 mt-0.5">
                           {despesa.pis}
                         </div>
@@ -941,10 +1089,10 @@ function DespesesContent() {
 
                     <td className="py-3 px-4 text-right">
                       <div className="font-black text-slate-900">
-                        {despesa.total_factura.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €
+                        {fmtEur(despesa.total_factura)} €
                       </div>
                       <div className="text-[10px] text-slate-400">
-                        Base: {despesa.base_imposable.toFixed(2)} €
+                        Base: {fmtEur(despesa.base_imposable)} €
                       </div>
                     </td>
 
@@ -959,10 +1107,10 @@ function DespesesContent() {
                             ? "bg-sky-100 text-sky-800"
                             : "bg-amber-100 text-amber-800"
                         }`}>
-                          {despesa.percentatge_total.toFixed(0)}%
+                          {fmtPct(despesa.percentatge_total)}%
                         </span>
                         <span className="text-[10px] text-slate-400 mt-0.5">
-                          {despesa.import_total.toFixed(2)} €
+                          {fmtEur(despesa.import_total)} €
                         </span>
                       </div>
                     </td>
@@ -973,9 +1121,9 @@ function DespesesContent() {
                           <span
                             key={imp.projecte_id}
                             className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-medium"
-                            title={`${imp.import.toFixed(2)} €`}
+                            title={`${fmtEur(imp.import)} €`}
                           >
-                            {imp.projecte_id} ({imp.percentatge}%)
+                            {projecteCodiById.get(imp.projecte_id) || imp.projecte_id} ({fmtPct(imp.percentatge)}%)
                           </span>
                         ))}
                         {despesaImps.length === 0 && (
@@ -1017,19 +1165,21 @@ function DespesesContent() {
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 bg-slate-50 text-xs">
             <span className="text-slate-500">
-              Pàgina <strong>{currentPage}</strong> de <strong>{totalPages}</strong>
+              Pàgina <strong>{safePage}</strong> de <strong>{totalPages}</strong>
             </span>
             <div className="flex items-center space-x-2">
               <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
+                disabled={safePage === 1}
+                aria-label="Pàgina anterior"
                 className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-200 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
+                disabled={safePage === totalPages}
+                aria-label="Pàgina següent"
                 className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-200 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1041,18 +1191,18 @@ function DespesesContent() {
       )}
 
       {/* Floating Bottom Bulk Actions Bar */}
-      {selectedIds.size > 0 && (
+      {selectedCount > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl shadow-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 border border-slate-700 max-w-4xl w-[95%] animate-in fade-in slide-in-from-bottom-5">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-sm border border-emerald-500/30">
-              {selectedIds.size}
+              {selectedCount}
             </div>
             <div>
               <p className="text-xs sm:text-sm font-bold text-white leading-tight">
-                {selectedIds.size} {selectedIds.size === 1 ? "factura seleccionada" : "factures seleccionades"}
+                {selectedCount} {selectedCount === 1 ? "factura seleccionada" : "factures seleccionades"}
               </p>
               <p className="text-[11px] text-slate-300 leading-tight mt-0.5">
-                Total: <strong className="text-emerald-300">{selectedTotal.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €</strong>
+                Total: <strong className="text-emerald-300">{fmtEur(selectedTotal)} €</strong>
               </p>
             </div>
           </div>
@@ -1096,6 +1246,7 @@ function DespesesContent() {
               onClick={clearSelection}
               className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-colors"
               title="Deseleccionar totes"
+              aria-label="Deseleccionar totes"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1106,7 +1257,7 @@ function DespesesContent() {
       {/* Bulk Action Modals */}
       <BulkPartidaModal
         isOpen={isBulkPartidaOpen}
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         selectedTotal={selectedTotal}
         partides={partides}
         onClose={() => setIsBulkPartidaOpen(false)}
@@ -1115,8 +1266,9 @@ function DespesesContent() {
 
       <BulkImputarModal
         isOpen={isBulkImputarOpen}
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         selectedTotal={selectedTotal}
+        withImputacionsCount={selectedWithImputacions}
         projectes={projectes}
         onClose={() => setIsBulkImputarOpen(false)}
         onConfirm={handleBulkImputarConfirm}
@@ -1124,7 +1276,7 @@ function DespesesContent() {
 
       <BulkResetModal
         isOpen={isBulkResetOpen}
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         selectedTotal={selectedTotal}
         onClose={() => setIsBulkResetOpen(false)}
         onConfirm={handleBulkResetConfirm}
@@ -1132,7 +1284,7 @@ function DespesesContent() {
 
       <BulkDeleteModal
         isOpen={isBulkDeleteOpen}
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         selectedTotal={selectedTotal}
         onClose={() => setIsBulkDeleteOpen(false)}
         onConfirm={handleBulkDeleteConfirm}

@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { X, Plus, Trash2, AlertTriangle, CheckCircle2, Info, Building2, Calendar, FileText, Percent, Euro } from "lucide-react";
 import { Despesa, Projecte, Imputacio } from "@/lib/types";
 import { useJustificacions } from "@/lib/store";
+import { percentCents } from "@/lib/sync_utils";
 
 interface ImputacioModalProps {
   despesa: Despesa;
@@ -18,13 +19,17 @@ interface AllocationRow {
 }
 
 export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps) {
-  const { projectes, imputacions, saveImputacions } = useJustificacions();
+  const { projectes, imputacions, saveImputacions, despeses } = useJustificacions();
 
   const [allocations, setAllocations] = useState<AllocationRow[]>([]);
   const [comentariGlobal, setComentariGlobal] = useState("");
 
-  // Preload existing allocations for this despesa
+  // Preload existing allocations once per despesa: later store updates (e.g. a Firestore
+  // snapshot) must not overwrite what the user is typing
+  const loadedFor = useRef<string | null>(null);
   useEffect(() => {
+    if (loadedFor.current === despesa.id) return;
+    loadedFor.current = despesa.id;
     const existing = imputacions.filter(imp => imp.despesa_id === despesa.id);
     if (existing.length > 0) {
       setAllocations(
@@ -36,7 +41,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
         }))
       );
     } else {
-      // Default: one empty row
+      // Default: one row at 100% to the first active project
       const firstProj = projectes.find(p => p.actiu)?.id || "";
       setAllocations([
         {
@@ -49,83 +54,105 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
     }
   }, [despesa, imputacions, projectes]);
 
-  const totalFactura = despesa.total_factura;
+  // Close with Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Credit notes (abonaments) have a negative total: percentages stay positive, amounts keep the sign
+  // Current total (a new A3 import may have changed it while the modal was open)
+  const totalFactura = (despeses.find(d => d.id === despesa.id) || despesa).total_factura;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  // % derived from € keeps 4 decimals so that e.g. 1 € + 1 € + 1 € of 3 € adds up to 100%
+  const round4 = (n: number) => Math.round(n * 10000) / 10000;
+  const importFromPercent = (p: number) => round2((p / 100) * totalFactura);
+
+  const updateRow = (index: number, patch: Partial<AllocationRow>) => {
+    setAllocations(prev => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
 
   const handlePercentChange = (index: number, val: number) => {
-    const updated = [...allocations];
-    const p = Math.max(0, val);
-    const imp = Math.round(((p / 100) * totalFactura) * 100) / 100;
-    updated[index].percentatge = p;
-    updated[index].import = imp;
-    setAllocations(updated);
+    const p = Math.max(0, Number.isFinite(val) ? val : 0);
+    updateRow(index, { percentatge: p, import: importFromPercent(p) });
   };
 
   const handleImportChange = (index: number, val: number) => {
-    const updated = [...allocations];
-    const imp = Math.max(0, val);
-    const p = totalFactura > 0 ? Math.round(((imp / totalFactura) * 100) * 100) / 100 : 0;
-    updated[index].import = imp;
-    updated[index].percentatge = p;
-    setAllocations(updated);
+    const raw = Number.isFinite(val) ? val : 0;
+    if (totalFactura === 0) {
+      updateRow(index, { import: 0, percentatge: 0 });
+      return;
+    }
+    // Amount entered as a positive number is taken with the sign of the invoice
+    const imp = round2(Math.sign(totalFactura) * Math.abs(raw));
+    updateRow(index, { import: imp, percentatge: round4((imp / totalFactura) * 100) });
   };
 
   const handleProjectChange = (index: number, projId: string) => {
-    const updated = [...allocations];
-    updated[index].projecte_id = projId;
-    setAllocations(updated);
+    updateRow(index, { projecte_id: projId });
   };
 
+  const selectedIds = new Set(allocations.map(a => a.projecte_id));
+  const availableProj = projectes.find(p => p.actiu && !selectedIds.has(p.id));
+
   const handleAddRow = () => {
+    if (!availableProj) return;
     const totalCurrentPercent = allocations.reduce((acc, c) => acc + c.percentatge, 0);
-    const remainingPercent = Math.max(0, Math.round((100 - totalCurrentPercent) * 100) / 100);
-    const remainingImport = Math.max(0, Math.round(((remainingPercent / 100) * totalFactura) * 100) / 100);
-
-    // Pick first project not yet selected
-    const selectedIds = new Set(allocations.map(a => a.projecte_id));
-    const availableProj = projectes.find(p => p.actiu && !selectedIds.has(p.id)) || projectes[0];
-
+    const remainingPercent = Math.max(0, round4(100 - totalCurrentPercent));
     setAllocations([
       ...allocations,
       {
-        projecte_id: availableProj?.id || "",
+        projecte_id: availableProj.id,
         percentatge: remainingPercent,
-        import: remainingImport,
+        import: importFromPercent(remainingPercent),
         observacions: ""
       }
     ]);
   };
 
   const handleRemoveRow = (index: number) => {
-    const updated = allocations.filter((_, i) => i !== index);
-    setAllocations(updated);
+    setAllocations(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSet100 = (index: number) => {
-    const updated = [...allocations];
-    updated[index].percentatge = 100;
-    updated[index].import = totalFactura;
-    setAllocations(updated);
+    updateRow(index, { percentatge: 100, import: totalFactura });
   };
 
   const handleSetRemaining = (index: number) => {
     const otherPercents = allocations.reduce((acc, c, i) => i === index ? acc : acc + c.percentatge, 0);
-    const rem = Math.max(0, Math.round((100 - otherPercents) * 100) / 100);
-    const remImp = Math.max(0, Math.round(((rem / 100) * totalFactura) * 100) / 100);
-    const updated = [...allocations];
-    updated[index].percentatge = rem;
-    updated[index].import = remImp;
-    setAllocations(updated);
+    const otherImports = allocations.reduce((acc, c, i) => i === index ? acc : acc + c.import, 0);
+    const rem = Math.max(0, round4(100 - otherPercents));
+    // Remaining amount computed in € so that the row closes the invoice to the cent
+    updateRow(index, { percentatge: rem, import: rem === 0 ? 0 : round2(totalFactura - otherImports) });
   };
 
-  const totalImputatPercent = Math.round(allocations.reduce((acc, c) => acc + c.percentatge, 0) * 100) / 100;
-  const totalImputatImport = Math.round(allocations.reduce((acc, c) => acc + c.import, 0) * 100) / 100;
-  const romanent = Math.round((totalFactura - totalImputatImport) * 100) / 100;
+  const totalImputatPercent = round2(allocations.reduce((acc, c) => acc + c.percentatge, 0));
+  const totalImputatImport = round2(allocations.reduce((acc, c) => acc + c.import, 0));
+  const romanent = round2(totalFactura - totalImputatImport);
 
-  const isExact100 = Math.abs(totalImputatPercent - 100) < 0.01;
-  const isOver100 = totalImputatPercent > 100.01;
-  const isUnder100 = totalImputatPercent < 99.99;
+  // Same criterion as the store (whole hundredths of a percent)
+  const cents = percentCents(totalImputatPercent);
+  const isExact100 = cents === 10000;
+  const isOver100 = cents > 10000;
+  const isUnder100 = cents < 10000;
+
+  const projectCounts = new Map<string, number>();
+  allocations.forEach(a => projectCounts.set(a.projecte_id, (projectCounts.get(a.projecte_id) || 0) + 1));
+  const hasDuplicates = Array.from(projectCounts.values()).some(n => n > 1);
+  const hasEmptyProject = allocations.some(a => !a.projecte_id && (a.percentatge > 0 || a.import !== 0));
+  const saveBlockReason = isOver100
+    ? "La suma supera el 100%: ajusta el repartiment abans de guardar."
+    : hasDuplicates
+      ? "Hi ha un projecte repetit en més d'una línia: uneix-les en una sola."
+      : hasEmptyProject
+        ? "Hi ha una línia sense projecte seleccionat."
+        : null;
 
   const handleSave = () => {
+    if (saveBlockReason) return;
     saveImputacions(despesa.id, allocations, comentariGlobal);
     onClose();
   };
@@ -206,7 +233,9 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
             </h4>
             <button
               onClick={handleAddRow}
-              className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+              disabled={!availableProj}
+              title={availableProj ? undefined : "Tots els projectes actius ja tenen una línia"}
+              className="disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Afegir Projecte</span>
@@ -225,11 +254,15 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
                     onChange={(e) => handleProjectChange(idx, e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs sm:text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   >
-                    {projectes.filter(p => p.actiu).map(p => (
+                    {!row.projecte_id && <option value="">— Selecciona un projecte —</option>}
+                    {projectes.filter(p => p.actiu || p.id === row.projecte_id).map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.codi} — {p.financador ? `[${p.financador}]` : ""} {p.area ? `(${p.area})` : ""}
+                        {p.codi} — {p.financador ? `[${p.financador}]` : ""} {p.area ? `(${p.area})` : ""}{p.actiu ? "" : " (TANCAT)"}
                       </option>
                     ))}
+                    {row.projecte_id && !projectes.some(p => p.id === row.projecte_id) && (
+                      <option value={row.projecte_id}>{row.projecte_id} (no existeix)</option>
+                    )}
                   </select>
                 </div>
 
@@ -251,13 +284,13 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
 
                 {/* Amount input */}
                 <div className="sm:col-span-3">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Import (€)</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Import (€){totalFactura < 0 ? " · abonament" : ""}</label>
                   <div className="relative">
                     <input
                       type="number"
                       step="0.01"
                       min="0"
-                      value={row.import}
+                      value={Math.abs(row.import)}
                       onChange={(e) => handleImportChange(idx, parseFloat(e.target.value) || 0)}
                       className="w-full pl-3 pr-6 py-2 rounded-lg border border-slate-300 text-xs sm:text-sm font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                     />
@@ -308,7 +341,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
                 </span>
                 {isUnder100 && (
                   <span className="block text-xs text-slate-500 font-normal">
-                    Fons propis / Restant: {romanent.toFixed(2)} € ({(100 - totalImputatPercent).toFixed(2)}%)
+                    Fons propis / Restant: {romanent.toFixed(2)} € ({Math.max(0, 100 - totalImputatPercent).toFixed(2)}%)
                   </span>
                 )}
               </div>
@@ -326,7 +359,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center space-x-2">
                 <Info className="w-4 h-4 text-amber-600 flex-shrink-0" />
                 <span>
-                  Imputació parcial ({totalImputatPercent}%): la quantia no assignada ({romanent} €) figurarà com a fons propis o despesa no subvencionada.
+                  Imputació parcial ({totalImputatPercent.toFixed(2)}%): la quantia no assignada ({romanent.toFixed(2)} €) figurarà com a fons propis o despesa no subvencionada.
                 </span>
               </div>
             )}
@@ -335,9 +368,9 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs flex items-center space-x-2 animate-pulse">
                 <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0" />
                 <div>
-                  <p className="font-bold">⚠️ ALERTA D'AUDITORIA: La suma supera el 100% ({totalImputatPercent}%)</p>
+                  <p className="font-bold">⚠️ La suma supera el 100% ({totalImputatPercent.toFixed(2)}%)</p>
                   <p className="text-rose-700 mt-0.5">
-                    Aquesta factura quedarà senyalitzada amb vigilància especial d'auditoria per possible sobredistribució.
+                    No es pot imputar més del total de la factura: redueix algun percentatge o import per poder guardar.
                   </p>
                 </div>
               </div>
@@ -361,7 +394,10 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
         </div>
 
         {/* Footer actions */}
-        <div className="flex items-center justify-end space-x-3 px-6 py-4 border-t border-slate-200 bg-slate-50/50">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50/50">
+          {saveBlockReason && (
+            <span className="text-xs text-rose-700 mr-auto">{saveBlockReason}</span>
+          )}
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors"
@@ -370,7 +406,8 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
           </button>
           <button
             onClick={handleSave}
-            className="px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
+            disabled={!!saveBlockReason}
+            className="disabled:bg-slate-300 disabled:cursor-not-allowed px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
           >
             Guardar Imputació
           </button>

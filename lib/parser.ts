@@ -44,16 +44,17 @@ export function formatDate(val: any): string {
     const date = new Date((val - (25567 + 2)) * 86400 * 1000);
     return !isNaN(date.getTime()) ? date.toISOString().split("T")[0] : "";
   }
-  const s = String(val).trim();
-  // dd/mm/yyyy to yyyy-mm-dd
-  const parts = s.split("/");
-  if (parts.length === 3) {
+  // Without the time part ("01/02/2026 10:00", "2026-02-01T10:00:00")
+  const s = String(val).trim().split(/[ T]/)[0];
+  // dd/mm/yyyy (or dd-mm-yyyy) to yyyy-mm-dd
+  const parts = s.split(/[/-]/);
+  if (parts.length === 3 && parts[0].length <= 2) {
     const d = parts[0].padStart(2, "0");
     const m = parts[1].padStart(2, "0");
     const y = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
     return `${y}-${m}-${d}`;
   }
-  return s.split(" ")[0];
+  return s;
 }
 
 export interface SheetInfo {
@@ -518,6 +519,15 @@ export function parseA3Excel(
   let senseCorrespondencia = 0;
   const resultDespeses: Despesa[] = [];
 
+  // An invoice split across several partides produces one despesa per partida: "compartida"
+  const partidesPerDocument = new Map<string, Set<string>>();
+  for (const clave of orderOfClaves) {
+    const g = groups[clave];
+    const docKey = `${g.docA3}||${Array.from(g.facturesList).join(" + ") || g.factura}`;
+    if (!partidesPerDocument.has(docKey)) partidesPerDocument.set(docKey, new Set());
+    partidesPerDocument.get(docKey)!.add(g.partidaId);
+  }
+
   // 1st pass: build despeses with a stable ID, unique within this import
   const usedIds = new Set<string>();
   for (const clave of orderOfClaves) {
@@ -573,7 +583,7 @@ export function parseA3Excel(
       total_factura: totalFactura,
       partida_id: g.partidaId,
       modificat_a3: false,
-      es_compartida: g.partidesVistes.size > 1,
+      es_compartida: (partidesPerDocument.get(`${g.docA3}||${facturasStr}`)?.size || 0) > 1,
       estat: "pendent",
       percentatge_total: 0,
       import_total: 0,

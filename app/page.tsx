@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { 
   Euro, 
@@ -14,38 +14,165 @@ import {
   TrendingUp,
   Clock,
   Layers,
-  Building
+  Loader2
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
+import { disponibleOf } from "@/lib/sync_utils";
 import ImportModal from "@/components/ImportModal";
 
 export default function DashboardPage() {
-  const { despeses, imputacions, projectes, partides, activeExercici, exportToExcel } = useJustificacions();
+  const { despeses, imputacions, projectes, isLoading, activeExercici, exportToExcel } = useJustificacions();
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [showAllProjects, setShowAllProjects] = useState(false);
 
-  // Calculations
-  const totalDespesesCount = despeses.length;
-  const sumCostTotal = despeses.reduce((acc, d) => acc + d.cost_total, 0);
-  const sumTotalFactura = despeses.reduce((acc, d) => acc + d.total_factura, 0);
-  const sumTotalImputat = despeses.reduce((acc, d) => acc + d.import_total, 0);
-  const sumRomanent = Math.max(0, sumTotalFactura - sumTotalImputat);
+  // Calculations (memoized: ~2.800 factures)
+  const stats = useMemo(() => {
+    let sumTotalFactura = 0;
+    let sumTotalImputat = 0;
+    let sumFacturaPositiva = 0;
+    // Romanent: Σ disponible de cada factura (same criterion as the matriu and the Excel export):
+    // excesses don't offset other invoices and credit notes keep their sign.
+    let sumRomanent = 0;
+    let sumRomanentPositiu = 0;
+    const pendents: typeof despeses = [];
+    const parcials: typeof despeses = [];
+    const completades: typeof despeses = [];
+    const excedides: typeof despeses = [];
+    let modificadesA3Count = 0;
+    let alertesCount = 0;
 
-  const pendents = despeses.filter(d => d.estat === "pendent");
-  const parcials = despeses.filter(d => d.estat === "parcial");
-  const completades = despeses.filter(d => d.estat === "completada");
-  const excedides = despeses.filter(d => d.estat === "excedida");
-  const modificadesA3 = despeses.filter(d => d.modificat_a3);
+    for (const d of despeses) {
+      sumTotalFactura += d.total_factura;
+      sumTotalImputat += d.import_total;
+      sumRomanent += disponibleOf(d);
+      if (d.total_factura > 0) {
+        sumFacturaPositiva += d.total_factura;
+        sumRomanentPositiu += disponibleOf(d);
+      }
+      if (d.estat === "pendent") pendents.push(d);
+      else if (d.estat === "parcial") parcials.push(d);
+      else if (d.estat === "completada") completades.push(d);
+      else if (d.estat === "excedida") excedides.push(d);
+      if (d.modificat_a3) modificadesA3Count++;
+      // Factures úniques amb alguna alerta (excedida i/o modificada a A3)
+      if (d.estat === "excedida" || d.modificat_a3) alertesCount++;
+    }
 
-  // Calculate totals per project
-  const projectStats = projectes.filter(p => p.actiu).map(proj => {
-    const projImps = imputacions.filter(imp => imp.projecte_id === proj.id);
-    const totalJustificat = projImps.reduce((acc, imp) => acc + imp.import, 0);
+    // Cobertura = part coberta de les factures positives (mai > 100% per compensació)
+    const cobertura = sumFacturaPositiva > 0
+      ? ((sumFacturaPositiva - sumRomanentPositiu) / sumFacturaPositiva) * 100
+      : 0;
+
     return {
-      ...proj,
-      despesesCount: projImps.length,
-      totalJustificat: Math.round(totalJustificat * 100) / 100,
+      sumTotalFactura,
+      sumTotalImputat,
+      sumRomanent,
+      cobertura,
+      pendents,
+      parcials,
+      completades,
+      excedides,
+      modificadesA3Count,
+      alertesCount,
     };
-  }).sort((a, b) => b.totalJustificat - a.totalJustificat);
+  }, [despeses]);
+
+  const {
+    sumTotalFactura,
+    sumTotalImputat,
+    sumRomanent,
+    cobertura,
+    pendents,
+    parcials,
+    completades,
+    excedides,
+    modificadesA3Count,
+    alertesCount,
+  } = stats;
+  const totalDespesesCount = despeses.length;
+
+  // Totals per projecte: Map projecte_id → totals (O(I) en lloc d'O(P·I))
+  const projectStats = useMemo(() => {
+    const totals = new Map<string, { count: number; total: number }>();
+    for (const imp of imputacions) {
+      const entry = totals.get(imp.projecte_id);
+      if (entry) {
+        entry.count += 1;
+        entry.total += imp.import;
+      } else {
+        totals.set(imp.projecte_id, { count: 1, total: imp.import });
+      }
+    }
+
+    const known = new Set<string>();
+    const rows = projectes
+      // Actius sempre; tancats només si tenen imputacions (perquè la suma quadri amb "Total Imputat")
+      .filter(p => p.actiu || totals.has(p.id))
+      .map(proj => {
+        known.add(proj.id);
+        const t = totals.get(proj.id);
+        return {
+          id: proj.id,
+          codi: proj.codi,
+          financador: proj.financador,
+          area: proj.area,
+          tancat: !proj.actiu,
+          desconegut: false,
+          despesesCount: t?.count ?? 0,
+          totalJustificat: Math.round((t?.total ?? 0) * 100) / 100,
+        };
+      });
+
+    // Imputacions a projectes que ja no existeixen al catàleg
+    totals.forEach((t, projId) => {
+      if (known.has(projId)) return;
+      rows.push({
+        id: projId,
+        codi: projId,
+        financador: "",
+        area: "",
+        tancat: false,
+        desconegut: true,
+        despesesCount: t.count,
+        totalJustificat: Math.round(t.total * 100) / 100,
+      });
+    });
+
+    return rows.sort((a, b) => b.totalJustificat - a.totalJustificat);
+  }, [projectes, imputacions]);
+
+  const PROJECT_LIMIT = 10;
+  const visibleProjectStats = showAllProjects ? projectStats : projectStats.slice(0, PROJECT_LIMIT);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-8" aria-busy="true" aria-live="polite">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">
+            Panell de Control de Justificacions
+          </h1>
+          <p className="text-sm text-slate-500 mt-1 flex items-center space-x-2">
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+            <span>Carregant dades de l'exercici...</span>
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3 animate-pulse">
+              <div className="h-3 w-24 rounded bg-slate-200" />
+              <div className="h-7 w-32 rounded bg-slate-200" />
+              <div className="h-3 w-40 rounded bg-slate-100" />
+            </div>
+          ))}
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3 animate-pulse">
+          {[0, 1, 2, 3, 4].map(i => (
+            <div key={i} className="h-4 rounded bg-slate-100" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -113,7 +240,7 @@ export default function DashboardPage() {
               {sumTotalImputat.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
             </p>
             <p className="text-xs text-slate-500 mt-1 font-medium">
-              {sumTotalFactura > 0 ? ((sumTotalImputat / sumTotalFactura) * 100).toFixed(1) : 0}% de cobertura global
+              {cobertura.toLocaleString("ca-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% de cobertura global
             </p>
           </div>
         </div>
@@ -131,7 +258,7 @@ export default function DashboardPage() {
               {sumRomanent.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
             </p>
             <p className="text-xs text-slate-500 mt-1 font-medium">
-              {pendents.length} factures pendents d'assignar
+              {pendents.length} pendents d'assignar | {parcials.length} parcials
             </p>
           </div>
         </div>
@@ -146,10 +273,10 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-2xl font-black text-rose-600">
-              {excedides.length + modificadesA3.length}
+              {alertesCount}
             </p>
-            <p className="text-xs text-slate-500 mt-1 font-medium">
-              {excedides.length} sobreimputacions (&gt;100%) | {modificadesA3.length} canvis A3
+            <p className="text-xs text-slate-500 mt-1 font-medium" title="Nombre de factures úniques amb alguna alerta (una factura excedida i modificada a A3 compta una sola vegada)">
+              {excedides.length} sobreimputacions (&gt;100%) | {modificadesA3Count} canvis A3
             </p>
           </div>
         </div>
@@ -181,7 +308,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-slate-900">Seguiment per Projectes i Subvencions</h2>
-              <p className="text-xs text-slate-500">Imports totals justificats a cada organisme convocant</p>
+              <p className="text-xs text-slate-500">Imports totals justificats a cada organisme convocant (inclou projectes tancats amb imputacions)</p>
             </div>
             <Link
               href="/projectes"
@@ -192,7 +319,7 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto ${showAllProjects ? "max-h-[32rem] overflow-y-auto" : ""}`}>
             <table className="w-full text-left text-xs sm:text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-400 font-semibold text-xs uppercase tracking-wider">
@@ -205,17 +332,27 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {projectStats.slice(0, 10).map((proj) => (
-                  <tr key={proj.id} className="hover:bg-slate-50/80 transition-colors">
+                {visibleProjectStats.map((proj) => (
+                  <tr key={proj.id} className={`hover:bg-slate-50/80 transition-colors ${proj.tancat || proj.desconegut ? "bg-slate-50/60" : ""}`}>
                     <td className="py-3 font-bold text-slate-900">
                       <Link
-                        href={`/despeses?projecte=${proj.id}`}
+                        href={`/despeses?projecte=${encodeURIComponent(proj.id)}`}
                         className="inline-flex items-center space-x-1.5 text-emerald-700 hover:text-emerald-900 hover:underline group font-bold"
                         title={`Veure totes les despeses de ${proj.codi} agrupades per partides`}
                       >
                         <span>{proj.codi}</span>
                         <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-emerald-600" />
                       </Link>
+                      {proj.tancat && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px] font-bold uppercase align-middle" title="Projecte tancat/inactiu amb imputacions">
+                          Tancat
+                        </span>
+                      )}
+                      {proj.desconegut && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold uppercase align-middle" title="Imputacions a un projecte que no existeix al catàleg">
+                          Desconegut
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 text-slate-600">
                       <span className="px-2 py-0.5 rounded bg-slate-100 font-medium text-xs">
@@ -228,12 +365,12 @@ export default function DashboardPage() {
                     <td className="py-3 text-center font-semibold text-slate-700">
                       {proj.despesesCount}
                     </td>
-                    <td className="py-3 text-right font-black text-emerald-700">
-                      {proj.totalJustificat.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €
+                    <td className={`py-3 text-right font-black ${proj.totalJustificat < 0 ? "text-rose-600" : "text-emerald-700"}`}>
+                      {proj.totalJustificat.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </td>
                     <td className="py-3 text-right">
                       <Link
-                        href={`/despeses?projecte=${proj.id}`}
+                        href={`/despeses?projecte=${encodeURIComponent(proj.id)}`}
                         className="inline-flex items-center space-x-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
                         title={`Obrir despeses de ${proj.codi} per partides`}
                       >
@@ -253,6 +390,26 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+
+          {projectStats.length > PROJECT_LIMIT && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 text-xs text-slate-500">
+              <span>
+                Mostrant <strong>{visibleProjectStats.length}</strong> de <strong>{projectStats.length}</strong> projectes
+              </span>
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAllProjects(v => !v)}
+                  className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+                >
+                  {showAllProjects ? `Mostrar només els ${PROJECT_LIMIT} primers` : "Mostrar-los tots"}
+                </button>
+                <Link href="/projectes" className="font-semibold text-slate-600 hover:text-slate-900 hover:underline">
+                  Anar a projectes
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* State Breakdown Sidebar (1 col) */}

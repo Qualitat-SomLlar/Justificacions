@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Search, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, X } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Equivalencia } from "@/lib/types";
@@ -23,7 +23,29 @@ export default function EquivalenciesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [compteInput, setCompteInput] = useState("");
   const [descripcioInput, setDescripcioInput] = useState("");
-  const [partidaDestiInput, setPartidaDestiInput] = useState(partides[0]?.id || "");
+  const [partidaDestiInput, setPartidaDestiInput] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Only active partides can be chosen as new destinations
+  const partidesActives = useMemo(() => partides.filter(p => p.activa !== false), [partides]);
+
+  const openCreateModal = () => {
+    setCompteInput("");
+    setDescripcioInput("");
+    setPartidaDestiInput("");
+    setFormError(null);
+    setIsModalOpen(true);
+  };
+
+  // Close modal with Escape
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isModalOpen]);
 
   // Sorting state
   const [sortField, setSortField] = useState<SortField>("compte");
@@ -71,15 +93,50 @@ export default function EquivalenciesPage() {
   const [quickAssignMap, setQuickAssignMap] = useState<{ [compte: string]: string }>({});
 
   const handleQuickAssign = (compte: string) => {
-    const targetPartida = quickAssignMap[compte] || partides[0]?.id;
-    if (targetPartida) {
-      assignPartidaToCompte(compte, targetPartida);
+    const targetPartida = quickAssignMap[compte];
+    if (!targetPartida) {
+      alert("Tria primer la partida destí per a aquest compte.");
+      return;
+    }
+    assignPartidaToCompte(compte, targetPartida);
+    setQuickAssignMap(prev => {
+      const next = { ...prev };
+      delete next[compte];
+      return next;
+    });
+  };
+
+  const handleRestoreCatalog = () => {
+    if (
+      confirm(
+        "Vols restaurar el catàleg original?\n\n" +
+        "Es tornaran a posar els valors originals de les partides, equivalències i projectes del catàleg de Som Llar " +
+        "(es desfaran els canvis que s'hi hagin fet).\n\n" +
+        "Els elements creats pels usuaris es mantenen."
+      )
+    ) {
+      reloadSeedData();
+    }
+  };
+
+  const handleDeleteEquivalencia = (eq: Equivalencia) => {
+    if (
+      confirm(
+        `Vols eliminar l'equivalència del compte ${eq.compte} → ${eq.partida_id}?\n\n` +
+        "Les factures ja importades mantenen la partida actual; les noves importacions d'aquest compte quedaran sense correspondència."
+      )
+    ) {
+      deleteEquivalencia(eq.compte);
     }
   };
 
   const handleCreateEquivalencia = (e: React.FormEvent) => {
     e.preventDefault();
     if (!compteInput.trim()) return;
+    if (!partidaDestiInput) {
+      setFormError("Cal triar la partida destí.");
+      return;
+    }
 
     addEquivalencia({
       compte: compteInput.trim(),
@@ -89,6 +146,8 @@ export default function EquivalenciesPage() {
 
     setCompteInput("");
     setDescripcioInput("");
+    setPartidaDestiInput("");
+    setFormError(null);
     setIsModalOpen(false);
   };
 
@@ -130,14 +189,14 @@ export default function EquivalenciesPage() {
 
         <div className="flex items-center space-x-3">
           <button
-            onClick={reloadSeedData}
+            onClick={handleRestoreCatalog}
             className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
-            title="Restaura les equivalències originals extretes de la plantilla de Som Llar"
+            title="Restaura els valors originals de partides, equivalències i projectes (manté els elements creats)"
           >
             Restaurar Catàleg Original
           </button>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={openCreateModal}
             className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm shadow-sm transition-all"
           >
             <Plus className="w-4 h-4" />
@@ -174,19 +233,22 @@ export default function EquivalenciesPage() {
 
                 <div className="flex items-center space-x-2">
                   <select
-                    value={quickAssignMap[item.compte] || partides[0]?.id}
+                    value={quickAssignMap[item.compte] || ""}
                     onChange={(e) => setQuickAssignMap({ ...quickAssignMap, [item.compte]: e.target.value })}
+                    aria-label={`Partida destí per al compte ${item.compte}`}
                     className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none max-w-[150px]"
                   >
-                    {partides.map(p => (
+                    <option value="" disabled>— Tria partida —</option>
+                    {partidesActives.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.codi} {p.activa === false ? "⚠️ (Baixa)" : ""}
+                        {p.codi}
                       </option>
                     ))}
                   </select>
                   <button
                     onClick={() => handleQuickAssign(item.compte)}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm whitespace-nowrap transition-colors"
+                    disabled={!quickAssignMap[item.compte]}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold text-xs shadow-sm whitespace-nowrap transition-colors"
                   >
                     Assignar
                   </button>
@@ -261,8 +323,8 @@ export default function EquivalenciesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sorted.map((eq) => (
-                <tr key={eq.compte} className="hover:bg-slate-50/70 transition-colors">
+              {sorted.map((eq, idx) => (
+                <tr key={`${eq.compte}__${eq.partida_id}__${idx}`} className="hover:bg-slate-50/70 transition-colors">
                   <td className="py-3 px-4 font-mono font-bold text-slate-900">
                     {eq.compte}
                   </td>
@@ -276,9 +338,10 @@ export default function EquivalenciesPage() {
                   </td>
                   <td className="py-3 px-4 text-right">
                     <button
-                      onClick={() => deleteEquivalencia(eq.compte)}
+                      onClick={() => handleDeleteEquivalencia(eq)}
                       className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
                       title="Eliminar equivalència"
+                      aria-label={`Eliminar equivalència del compte ${eq.compte}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -301,12 +364,18 @@ export default function EquivalenciesPage() {
       {/* Modal Add Equivalencia */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="equivalencia-modal-title"
+            className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+          >
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-              <h3 className="text-base font-bold text-slate-900">Nova Equivalència de Compte</h3>
+              <h3 id="equivalencia-modal-title" className="text-base font-bold text-slate-900">Nova Equivalència de Compte</h3>
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                aria-label="Tancar"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -345,17 +414,28 @@ export default function EquivalenciesPage() {
                   Partida Destí (`DD_...`) *
                 </label>
                 <select
+                  required
                   value={partidaDestiInput}
-                  onChange={(e) => setPartidaDestiInput(e.target.value)}
+                  onChange={(e) => { setPartidaDestiInput(e.target.value); setFormError(null); }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 >
-                  {partides.map(p => (
+                  <option value="" disabled>— Tria partida —</option>
+                  {partidesActives.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.codi} {p.activa === false ? "⚠️ (Baixa)" : ""}
+                      {p.codi}
                     </option>
                   ))}
                 </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Si el compte ja té equivalència, s&apos;actualitzarà amb la nova partida. Les partides donades de baixa no es poden triar.
+                </p>
               </div>
+
+              {formError && (
+                <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                  {formError}
+                </div>
+              )}
 
               <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100">
                 <button

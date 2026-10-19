@@ -244,6 +244,21 @@
       "id": "DD_SINISTRES INDEMNITZATS",
       "codi": "DD_SINISTRES INDEMNITZATS",
       "nom": "Sinistres Indemnitzats"
+    },
+    {
+      "id": "DD_DEUTES CURT TERMINI",
+      "codi": "DD_DEUTES CURT TERMINI",
+      "nom": "Deutes Curt Termini"
+    },
+    {
+      "id": "DD_DONACIONS_AJUTS",
+      "codi": "DD_DONACIONS_AJUTS",
+      "nom": "Donacions Ajuts"
+    },
+    {
+      "id": "DD_PRESTEC HIPOTECARI BBVA",
+      "codi": "DD_PRESTEC HIPOTECARI BBVA",
+      "nom": "Prestec Hipotecari Bbva"
     }
   ],
   "equivalencies": [
@@ -575,7 +590,7 @@
     {
       "compte": "678000007",
       "descripcio": "DESPESES PER SINISTRES INDEMNITZADES",
-      "partida_id": "DD_SININSTRES INDEMNITZATS"
+      "partida_id": "DD_SINISTRES INDEMNITZATS"
     },
     {
       "compte": "520000003",
@@ -1840,11 +1855,6 @@
     {
       "compte": "600000000",
       "descripcio": "Compras de bienes destinados a la actividad",
-      "partida_id": "DD_ALTRES DESPESES"
-    },
-    {
-      "compte": "608000000",
-      "descripcio": "Devoluciones de compras de bienes destinados activ",
       "partida_id": "DD_ALTRES DESPESES"
     },
     {

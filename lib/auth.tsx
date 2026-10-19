@@ -7,7 +7,8 @@ import {
   signOut as fbSignOut, 
   onAuthStateChanged 
 } from "firebase/auth";
-import { auth, googleProvider } from "./firebase";
+import { waitForPendingWrites } from "firebase/firestore";
+import { auth, db, googleProvider } from "./firebase";
 import { ShieldCheck, AlertCircle, LogIn, Lock, CheckCircle2, UserCheck } from "lucide-react";
 
 interface AuthContextType {
@@ -146,6 +147,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.removeItem("somllar_auth_demo");
       if (auth) {
+        // Let the last changes reach Firestore before the session (and its permissions) ends
+        if (db && auth.currentUser) {
+          await Promise.race([
+            waitForPendingWrites(db).catch(() => undefined),
+            new Promise(resolve => setTimeout(resolve, 5000)),
+          ]);
+        }
         await fbSignOut(auth);
       }
       setUser(null);
