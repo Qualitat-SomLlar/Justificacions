@@ -77,6 +77,14 @@ export function exportJustificacionsExcel(
   // would include amounts with no project column)
   const imputedProjectIds = new Set(imputacions.filter(imp => imp.percentatge > 0 || imp.import !== 0).map(imp => imp.projecte_id));
   const activeProjects = projectes.filter(p => p.actiu || imputedProjectIds.has(p.id));
+  // Imputations to projects that no longer exist in the catalog also get a column (as in the matriu)
+  const knownProjectIds = new Set(projectes.map(p => p.id));
+  const unknownProjectIds = new Set<string>();
+  imputedProjectIds.forEach(id => {
+    if (knownProjectIds.has(id)) return;
+    unknownProjectIds.add(id);
+    activeProjects.push({ id, codi: id, nom: id, financador: "", area: "", dates_text: "", actiu: false });
+  });
 
   // Group despeses by Partida
   const despesesByPartida = new Map<string, Despesa[]>();
@@ -196,7 +204,7 @@ export function exportJustificacionsExcel(
     // Header Row 5: Projecte
     const row5: any[] = padding();
     activeProjects.forEach(p => {
-      row5.push(p.actiu ? p.codi : `${p.codi} (TANCAT)`);
+      row5.push(p.actiu ? p.codi : `${p.codi} (${unknownProjectIds.has(p.id) ? "DESCONEGUT" : "TANCAT"})`);
       row5.push("");
     });
     sheetRows.push(row5);

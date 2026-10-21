@@ -26,7 +26,8 @@ import {
   estatFromPercent,
   hasChanges,
   percentCents,
-  pickMigrationSource
+  pickMigrationSource,
+  splitByExercici
 } from "./sync_utils";
 
 /**
@@ -643,11 +644,24 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
           : "No hi ha connexió amb el núvol: no es pot importar fins que es resolgui."
       );
     }
-    const summary = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet);
+    const parsed = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet);
 
-    // Merge new parsed despeses with existing
+    // Only invoices of the active exercici are imported: the others would end up in this
+    // exercici's bucket (and be duplicated when imported again under their own exercici)
     const existingMap = new Map<string, Despesa>();
     despeses.forEach(d => existingMap.set(d.id, d));
+    const { kept, skipped } = splitByExercici(parsed.despeses, activeExercici);
+    const summary: ImportSummary = {
+      ...parsed,
+      despeses: kept,
+      facturesNoves: kept.filter(d => !existingMap.has(d.id)).length,
+      facturesExistents: kept.filter(d => existingMap.has(d.id)).length,
+      facturesModificades: kept.filter(d => existingMap.has(d.id) && d.modificat_a3).length,
+      senseCorrespondencia: kept.filter(d => d.partida_id === "SENSE_CORRESPONDENCIA").length,
+      ignoradesAltreExercici: skipped.length,
+    };
+
+    // Merge new parsed despeses with existing
 
     const updatedList: Despesa[] = [];
     const changedTotals = new Map<string, number>();
@@ -704,11 +718,11 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
     commit({ despeses: updatedList, imputacions: updatedImputacions });
 
-    const altresExercicis = summary.despeses.filter(d => d.any_fiscal !== activeExercici).length;
+    const altresExercicis = skipped.length;
     recordLog(
       "importacio_a3",
       `Volcat d'Excel d'A3 Processat (exercici ${activeExercici})`,
-      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} ja existents (${summary.facturesModificades} amb canvis a l'A3, ${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.${altresExercicis > 0 ? ` Atenció: ${altresExercicis} factures tenen data d'un altre exercici.` : ""}`
+      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} ja existents (${summary.facturesModificades} amb canvis a l'A3, ${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.${altresExercicis > 0 ? ` Atenció: ${altresExercicis} factures tenen data d'un altre exercici i no s'han importat.` : ""}`
     );
 
     return summary;
@@ -827,7 +841,12 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       });
     }
 
-    commit({ imputacions: [...preservedImputacions, ...newImps] });
+    // Reviewing the imputation clears the "modified in A3" warning (as saveImputacions does)
+    const despesesUpdate = despeses.some(d => idSet.has(d.id) && d.modificat_a3)
+      ? despeses.map(d => (idSet.has(d.id) && d.modificat_a3 ? { ...d, modificat_a3: false } : d))
+      : undefined;
+
+    commit({ imputacions: [...preservedImputacions, ...newImps], despeses: despesesUpdate });
 
     const allocDesc = validAllocations.map(a => `${a.projecte_id} (${a.percentatge}%)`).join(", ") || "Sense projectes (0%)";
     recordLog(

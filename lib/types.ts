@@ -71,6 +71,8 @@ export interface ImportSummary {
   facturesModificades: number;
   senseCorrespondencia: number;
   despeses: Despesa[];
+  /** Factures del fitxer amb any fiscal d'un altre exercici: no s'han importat */
+  ignoradesAltreExercici?: number;
   fullUtilitzat?: string;
   columnesDetectades?: { camp: string; nomColumna: string; trobada: boolean }[];
   comptesSenseCorrespondencia?: { compte: string; descripcio: string; count: number }[];

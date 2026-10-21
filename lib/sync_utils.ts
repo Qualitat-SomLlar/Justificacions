@@ -118,6 +118,24 @@ export function disponibleOf(d: { total_factura: number; import_total: number })
   return d.total_factura >= 0 ? Math.max(0, rest) : Math.min(0, rest);
 }
 
+/**
+ * Splits parsed invoices by fiscal year: only those of the active exercici are imported (the
+ * rest would end up in the wrong bucket). Invoices without a date count as the active exercici,
+ * because their any_fiscal is just the current year by default.
+ */
+export function splitByExercici<T extends { any_fiscal: number; data_emissio: string }>(
+  items: T[],
+  exercici: number
+): { kept: T[]; skipped: T[] } {
+  const kept: T[] = [];
+  const skipped: T[] = [];
+  for (const item of items) {
+    if (!item.data_emissio || item.any_fiscal === exercici) kept.push(item);
+    else skipped.push(item);
+  }
+  return { kept, skipped };
+}
+
 export function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));

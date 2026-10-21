@@ -180,9 +180,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   const linesImportades = summary ? summary.despeses.length : 0;
   const isEmptyImport = !!summary && (summary.totalFilesLlegides === 0 || linesImportades === 0);
   const mantingudesSenseCanvis = summary ? Math.max(0, summary.facturesExistents - summary.facturesModificades) : 0;
-  const altresExercicis = summary
-    ? summary.despeses.filter(d => d.any_fiscal !== exerciciImportat).length
-    : 0;
+  const altresExercicis = summary?.ignoradesAltreExercici ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
@@ -494,7 +492,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 <div role="alert" className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start space-x-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                   <span>
-                    <strong>{altresExercicis} {altresExercicis === 1 ? "factura és" : "factures són"} d'un altre exercici</strong> (any fiscal diferent de {exerciciImportat}). Revisa que hagis triat l'exercici correcte abans de justificar.
+                    <strong>{altresExercicis} {altresExercicis === 1 ? "factura és" : "factures són"} d'un altre exercici</strong> (any fiscal diferent de {exerciciImportat}) i <strong>no s'han importat</strong>. Si les necessites, canvia l'exercici actiu a dalt i torna a pujar el fitxer.
                   </span>
                 </div>
               )}

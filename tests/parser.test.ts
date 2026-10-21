@@ -32,6 +32,8 @@ describe("parseNum", () => {
     expect(parseNum("1.234,56")).toBe(1234.56);
     expect(parseNum("1.234.567")).toBe(1234567);
     expect(parseNum("1234.56")).toBe(1234.56);
+    expect(parseNum("0.125")).toBe(0.125);
+    expect(parseNum("-0.500")).toBe(-0.5);
     expect(parseNum("12,5 €")).toBe(12.5);
     expect(parseNum("-3,40")).toBe(-3.4);
     expect(parseNum(7)).toBe(7);

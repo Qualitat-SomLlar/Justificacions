@@ -11,6 +11,7 @@ import {
   percentCents,
   pickMigrationSource,
   shardOf,
+  splitByExercici,
   stableStringify,
 } from "@/lib/sync_utils";
 
@@ -113,6 +114,20 @@ describe("migration helpers", () => {
   it("counts items present only in the other copy", () => {
     expect(countMissing([{ id: "1" }], [{ id: "1" }, { id: "2" }], (i: { id: string }) => i.id)).toBe(1);
     expect(countMissing([{ id: "1" }], null, (i: { id: string }) => i.id)).toBe(0);
+  });
+});
+
+describe("splitByExercici", () => {
+  it("keeps the active exercici and undated invoices, skips the rest", () => {
+    const items = [
+      { id: "a", any_fiscal: 2026, data_emissio: "2026-01-05" },
+      { id: "b", any_fiscal: 2025, data_emissio: "2025-12-30" },
+      { id: "c", any_fiscal: 2026, data_emissio: "" },
+      { id: "d", any_fiscal: 2026, data_emissio: "" },
+    ];
+    const { kept, skipped } = splitByExercici(items, 2025);
+    expect(kept.map(i => i.id)).toEqual(["b", "c", "d"]);
+    expect(skipped.map(i => i.id)).toEqual(["a"]);
   });
 });
 

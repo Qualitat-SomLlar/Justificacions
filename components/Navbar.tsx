@@ -33,8 +33,15 @@ export default function Navbar() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isMigrationOpen, setIsMigrationOpen] = useState(false);
 
-  const pendingCount = despeses.filter(d => d.estat === "pendent").length;
-  const alertCount = despeses.filter(d => d.estat === "excedida" || d.modificat_a3).length;
+  const { pendingCount, alertCount } = useMemo(() => {
+    let pending = 0;
+    let alerts = 0;
+    for (const d of despeses) {
+      if (d.estat === "pendent") pending++;
+      if (d.estat === "excedida" || d.modificat_a3) alerts++;
+    }
+    return { pendingCount: pending, alertCount: alerts };
+  }, [despeses]);
 
   // Exercici options: current year + 1 down to current year - 3, always including the active one
   const exerciciOptions = useMemo(() => {

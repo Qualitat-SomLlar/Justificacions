@@ -19,8 +19,8 @@ export function parseNum(val: any): number {
   if (raw.includes(",")) {
     // 1.234,56 -> 1234.56
     s = raw.replace(/\./g, "").replace(",", ".");
-  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(raw)) {
-    // 1.234.567 -> thousands separators
+  } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(raw)) {
+    // 1.234.567 -> thousands separators (a leading 0 means a decimal: 0.125)
     s = raw.replace(/\./g, "");
   } else {
     // 1234.56 -> already a decimal point
