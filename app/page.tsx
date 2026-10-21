@@ -18,7 +18,38 @@ import {
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { disponibleOf } from "@/lib/sync_utils";
+import { execucioOf } from "@/lib/pressupost";
+import { foraPeriodePerProjecte } from "@/lib/informes";
 import ImportModal from "@/components/ImportModal";
+
+const ESTAT_COLORS = {
+  sense: { bar: "bg-slate-300", text: "text-slate-400" },
+  ok: { bar: "bg-emerald-500", text: "text-emerald-700" },
+  alerta: { bar: "bg-amber-500", text: "text-amber-700" },
+  excedit: { bar: "bg-rose-500", text: "text-rose-700" },
+} as const;
+
+function PressupostCell({ pressupost, imputat }: { pressupost: number; imputat: number }) {
+  const ex = execucioOf(pressupost, imputat);
+  if (ex.estat === "sense") {
+    return <span className="text-xs text-slate-400" title="Defineix el pressupost total a la pantalla de Projectes">Sense pressupost</span>;
+  }
+  const colors = ESTAT_COLORS[ex.estat];
+  const pct = ex.pct.toLocaleString("ca-ES", { maximumFractionDigits: 1 });
+  return (
+    <div
+      className="inline-flex flex-col items-end space-y-1 min-w-[8rem]"
+      title={`Pressupost ${ex.pressupost.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} € · Disponible ${ex.disponible.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €`}
+    >
+      <span className={`text-xs font-bold ${colors.text}`}>
+        {pct}%{ex.estat === "excedit" ? " · superat" : ""}
+      </span>
+      <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden" role="progressbar" aria-valuenow={Math.min(100, ex.pct)} aria-valuemin={0} aria-valuemax={100} aria-label="Execució del pressupost">
+        <div className={`h-full rounded-full ${colors.bar}`} style={{ width: `${Math.max(0, Math.min(100, ex.pct))}%` }} />
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const { despeses, imputacions, projectes, isLoading, activeExercici, exportToExcel } = useJustificacions();
@@ -120,6 +151,7 @@ export default function DashboardPage() {
           desconegut: false,
           despesesCount: t?.count ?? 0,
           totalJustificat: Math.round((t?.total ?? 0) * 100) / 100,
+          pressupost: proj.pressupost_total || 0,
         };
       });
 
@@ -135,11 +167,24 @@ export default function DashboardPage() {
         desconegut: true,
         despesesCount: t.count,
         totalJustificat: Math.round(t.total * 100) / 100,
+        pressupost: 0,
       });
     });
 
     return rows.sort((a, b) => b.totalJustificat - a.totalJustificat);
   }, [projectes, imputacions]);
+
+  // Warnings: projects over (or close to) their budget, and imputations dated outside the project's period
+  const budgetAlerts = useMemo(
+    () =>
+      projectStats
+        .map(p => ({ ...p, execucio: execucioOf(p.pressupost, p.totalJustificat) }))
+        .filter(p => p.execucio.estat === "excedit" || p.execucio.estat === "alerta"),
+    [projectStats]
+  );
+  const budgetExcedits = budgetAlerts.filter(p => p.execucio.estat === "excedit");
+  const foraPeriode = useMemo(() => foraPeriodePerProjecte(projectes, despeses, imputacions), [projectes, despeses, imputacions]);
+  const foraPeriodeCount = foraPeriode.reduce((acc, p) => acc + p.count, 0);
 
   const PROJECT_LIMIT = 10;
   const visibleProjectStats = showAllProjects ? projectStats : projectStats.slice(0, PROJECT_LIMIT);
@@ -300,6 +345,48 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Budget alerts */}
+      {budgetAlerts.length > 0 && (
+        <div
+          role="alert"
+          className={`p-4 rounded-2xl border flex items-start justify-between gap-4 ${
+            budgetExcedits.length > 0 ? "bg-rose-50 border-rose-200" : "bg-amber-50 border-amber-200"
+          }`}
+        >
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${budgetExcedits.length > 0 ? "text-rose-600" : "text-amber-600"}`} />
+            <div className={`text-sm ${budgetExcedits.length > 0 ? "text-rose-800" : "text-amber-800"}`}>
+              <p className="font-semibold">
+                {budgetExcedits.length > 0
+                  ? `${budgetExcedits.length} ${budgetExcedits.length === 1 ? "projecte supera" : "projectes superen"} el pressupost`
+                  : `${budgetAlerts.length} ${budgetAlerts.length === 1 ? "projecte és" : "projectes són"} a prop del límit del pressupost`}
+              </p>
+              <p className="text-xs mt-0.5">
+                {budgetAlerts.map(p => `${p.codi} (${p.execucio.pct.toLocaleString("ca-ES", { maximumFractionDigits: 1 })}%)`).join(" · ")}
+              </p>
+            </div>
+          </div>
+          <Link href="/informes" className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors whitespace-nowrap">
+            Veure informes
+          </Link>
+        </div>
+      )}
+
+      {/* Period alerts */}
+      {foraPeriodeCount > 0 && (
+        <div role="alert" className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <p className="text-sm font-semibold text-amber-800">
+              Hi ha {foraPeriodeCount} {foraPeriodeCount === 1 ? "imputació" : "imputacions"} de factures amb data fora del període de justificació del projecte ({foraPeriode.length} {foraPeriode.length === 1 ? "projecte" : "projectes"}).
+            </p>
+          </div>
+          <Link href="/informes?alertes=periode" className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-colors whitespace-nowrap">
+            Revisar
+          </Link>
+        </div>
+      )}
+
       {/* Main Grid: Projects execution & Status Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
@@ -328,6 +415,7 @@ export default function DashboardPage() {
                   <th className="pb-3">Àrea</th>
                   <th className="pb-3 text-center">Factures</th>
                   <th className="pb-3 text-right">Total Justificat</th>
+                  <th className="pb-3 text-right" title="Imputat sobre el pressupost total del projecte">Execució pressupost</th>
                   <th className="pb-3 text-right">Despeses per Partida</th>
                 </tr>
               </thead>
@@ -369,6 +457,9 @@ export default function DashboardPage() {
                       {proj.totalJustificat.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </td>
                     <td className="py-3 text-right">
+                      <PressupostCell pressupost={proj.pressupost} imputat={proj.totalJustificat} />
+                    </td>
+                    <td className="py-3 text-right">
                       <Link
                         href={`/despeses?projecte=${encodeURIComponent(proj.id)}`}
                         className="inline-flex items-center space-x-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
@@ -382,7 +473,7 @@ export default function DashboardPage() {
                 ))}
                 {projectStats.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-6 text-center text-slate-400 text-sm">
+                    <td colSpan={7} className="py-6 text-center text-slate-400 text-sm">
                       No hi ha projectes carregats.
                     </td>
                   </tr>

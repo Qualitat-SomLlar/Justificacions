@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useId, useRef } from "react";
 import { X, AlertTriangle, CheckCircle2, FolderTree, Briefcase, RotateCcw, Trash2, Plus } from "lucide-react";
 import { Partida, Projecte } from "@/lib/types";
+import { formatPeriode, isOutsidePeriode, parsePeriode } from "@/lib/periode";
+import { execucioOf } from "@/lib/pressupost";
 
 const fmtEur = (value: number) =>
   (value ?? 0).toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -239,6 +241,10 @@ interface BulkImputarModalProps {
   selectedTotal: number;
   /** How many of the selected invoices already have allocations (they will be replaced) */
   withImputacionsCount?: number;
+  /** Issue dates (yyyy-mm-dd) of the selected invoices, to warn about those outside a project's period */
+  selectedDates?: string[];
+  /** Amount already imputed to each project by the invoices that are NOT selected (the selected ones get replaced) */
+  imputatAltres?: Record<string, number>;
   projectes: Projecte[];
   onClose: () => void;
   onConfirm: (
@@ -266,6 +272,8 @@ export function BulkImputarModal({
   selectedCount,
   selectedTotal,
   withImputacionsCount = 0,
+  selectedDates = [],
+  imputatAltres = {},
   projectes,
   onClose,
   onConfirm,
@@ -305,6 +313,37 @@ export function BulkImputarModal({
   if (isOver100) errors.push("La suma dels percentatges supera el 100%.");
   if (selectedCount === 0) errors.push("No hi ha cap factura seleccionada.");
   const canSubmit = errors.length === 0;
+
+  // Warnings per row (they don't block): invoices outside the project's period and budget reached or exceeded
+  const rowWarnings = (projecteId: string, percent: number | null): { level: "warn" | "danger"; text: string }[] => {
+    const p = projectes.find((item) => item.id === projecteId);
+    if (!p) return [];
+    const warnings: { level: "warn" | "danger"; text: string }[] = [];
+    const periode = parsePeriode(p.dates_text);
+    const outside = selectedDates.filter((d) => isOutsidePeriode(d, periode)).length;
+    if (outside > 0) {
+      warnings.push({
+        level: "warn",
+        text: `${outside} ${outside === 1 ? "factura té" : "factures tenen"} data fora del període de ${p.codi} (${formatPeriode(periode)}) i podrien no ser elegibles.`,
+      });
+    }
+    if (percent !== null && percent > 0) {
+      const added = Math.round(((percent / 100) * selectedTotal) * 100) / 100;
+      const ex = execucioOf(p.pressupost_total, (imputatAltres[p.id] || 0) + added);
+      if (ex.estat === "excedit") {
+        warnings.push({
+          level: "danger",
+          text: `${p.codi} superaria el seu pressupost: ${fmtEur(ex.imputat)} € sobre ${fmtEur(ex.pressupost)} € (${ex.pct.toFixed(2)}%).`,
+        });
+      } else if (ex.estat === "alerta") {
+        warnings.push({
+          level: "warn",
+          text: `${p.codi} arribaria al ${ex.pct.toFixed(2)}% del seu pressupost (queden ${fmtEur(ex.disponible)} €).`,
+        });
+      }
+    }
+    return warnings;
+  };
 
   const updateRow = (index: number, patch: Partial<AllocationRowState>) => {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -397,7 +436,8 @@ export function BulkImputarModal({
             const usedElsewhere = new Set(rows.filter((_, i) => i !== idx).map((r) => r.projecte_id));
             const options = activeProjects.filter((p) => !usedElsewhere.has(p.id));
             return (
-              <div key={row.key} className="flex items-center space-x-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+              <div key={row.key} className="space-y-1.5">
+              <div className="flex items-center space-x-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                 <select
                   value={row.projecte_id}
                   onChange={(e) => updateRow(idx, { projecte_id: e.target.value })}
@@ -441,6 +481,19 @@ export function BulkImputarModal({
                     <Trash2 className="w-4 h-4" />
                   </button>
                 )}
+              </div>
+              {rowWarnings(row.projecte_id, parsed[idx]).map((w, wi) => (
+                <div
+                  key={wi}
+                  role="status"
+                  className={`p-2 rounded-lg border text-[11px] flex items-start space-x-1.5 ${
+                    w.level === "danger" ? "bg-rose-50 border-rose-200 text-rose-800" : "bg-amber-50 border-amber-200 text-amber-800"
+                  }`}
+                >
+                  <AlertTriangle className={`w-3.5 h-3.5 flex-shrink-0 mt-px ${w.level === "danger" ? "text-rose-600" : "text-amber-600"}`} />
+                  <span>{w.text}</span>
+                </div>
+              ))}
               </div>
             );
           })}

@@ -10,6 +10,9 @@ Aplicatiu web per a la gestió, control i imputació econòmica de justificacion
 - **Mapeig de partides:** equivalències de comptes comptables a partides de despesa directa (`DD_...`).
 - **Imputació flexible:** repartiment per % i per import (€) a projectes, quadrat al cèntim. També en bloc sobre diverses factures.
 - **Control i alertes:** sobreimputacions (>100%), canvis detectats a l'A3 en noves càrregues i factures pendents.
+- **Pressupost per projecte:** el *Pressupost total* de cada projecte (pantalla Projectes) es compara amb l'import imputat. El panell mostra l'execució amb una barra i avisa a partir del 90% i quan se supera. En imputar (una factura o en bloc) s'avisa si la imputació faria arribar o superar el pressupost. Els avisos no bloquegen.
+- **Període de justificació:** el camp *Període* del projecte (`dd/mm/aaaa-dd/mm/aaaa`) permet avisar quan una factura té data d'emissió fora del període del projecte, tant en imputar com al panell i als informes. Un projecte sense període vàlid no genera avisos.
+- **Informes per projecte:** la pantalla *Informes* mostra, per a un projecte i l'exercici actiu, el total imputat per partida, l'execució del pressupost i el detall de factures (marcant les fora de període), i es pot descarregar en Excel (full *Resum* + full *Factures*).
 - **Historial d'auditoria:** tot canvi queda registrat, amb comentaris i notes manuals.
 - **Exportació:** Excel amb un full resum i un full per partida, amb una columna de % i import per projecte.
 - **Accés restringit:** comptes `@somllar.cat` i `@prohabitatge.org` (més una llista blanca), validat també a les regles de Firestore.
@@ -44,6 +47,7 @@ El **mode proves** (accés sense Google) només està disponible amb `npm run de
 | `components/` | Modals d'importació, imputació, accions massives i migració, i la barra de navegació |
 | `lib/parser.ts` | Lectura de l'Excel d'A3 |
 | `lib/imputacions.ts` | Càlcul del repartiment d'imputacions (pur, amb tests) |
+| `lib/periode.ts`, `lib/pressupost.ts`, `lib/informes.ts`, `lib/informe_exporter.ts` | Període i pressupost dels projectes, dades de l'informe i el seu Excel (purs, amb tests) |
 | `lib/store.tsx` | Estat global, sincronització i accions |
 | `lib/firestore_sync.ts`, `lib/sync_utils.ts` | Format Firestore v3 (shards), diferències camp a camp i migració |
 | `lib/exporter.ts` | Generació de l'Excel |

@@ -19,6 +19,7 @@ import {
   User as UserIcon,
   FolderTree,
   CloudOff,
+  ClipboardList,
   X
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
@@ -70,6 +71,7 @@ export default function Navbar() {
       badgeTitle: `${pendingCount} despeses pendents d'imputar`
     },
     { href: "/matriu", label: "Matriu Justificativa", icon: Table2 },
+    { href: "/informes", label: "Informes", icon: ClipboardList },
     { href: "/projectes", label: "Projectes", icon: Briefcase },
     { href: "/partides", label: "Partides", icon: FolderTree },
     { href: "/equivalencies", label: "Equivalències A3", icon: ArrowLeftRight },
@@ -97,7 +99,8 @@ export default function Navbar() {
             </div>
 
             {/* Navigation links */}
-            <nav className="hidden lg:flex items-center space-x-1 flex-shrink-0">
+            {/* With 8 sections the inline menu needs ~1900 px; below that the second row (scrollable) is used */}
+            <nav className="hidden min-[1900px]:flex items-center space-x-1 flex-shrink-0">
               {navItems.map(item => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
@@ -202,7 +205,7 @@ export default function Navbar() {
         </div>
 
         {/* Mobile / Tablet navigation row */}
-        <div className="lg:hidden border-t border-slate-200 px-4 py-2 flex items-center justify-start overflow-x-auto space-x-2 bg-slate-50">
+        <div className="min-[1900px]:hidden border-t border-slate-200 px-4 py-2 flex items-center justify-start overflow-x-auto space-x-2 bg-slate-50">
           {navItems.map(item => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
