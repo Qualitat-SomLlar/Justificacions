@@ -2,6 +2,12 @@
 
 Els tests automàtics cobreixen la lògica (parser, imputacions, exportador, sincronització). Això no ho cobreixen: el navegador, l'inici de sessió i Firestore reals. Feu-ho amb **una còpia de les dades** o en un entorn de proves, i marqueu cada punt.
 
+## Ja verificat (21/10/2026, en local, mode proves i dades inventades)
+
+Provat a mà a l'aplicació en marxa, sense Firestore: importació d'A3 (full i columnes detectats, factura d'un altre any no importada, reimportació sense duplicats, canvi de total a l'A3 amb recàlcul i avís), imputació (50/50 de 10,01 €, 33,33/33,33/33,34 i abonament quadrats al cèntim, en bloc i factura a factura, avís d'A3 netejat), canvi d'exercici (filtre conservat, dades separades), exportació (xlsx vàlid), equivalències (reassigna només la factura afectada) i historial.
+
+**Encara cal fer vosaltres**, perquè necessiten Firebase i comptes reals: la secció 1 (accés amb Google), la 2 (migració), la 5 (dos usuaris) i la comprovació de l'Excel exportat obert amb Excel.
+
 ## 0. Preparació (una sola vegada)
 
 - [ ] **Còpia de seguretat:** exporteu l'Excel de cada exercici amb dades (botó *Exportar Excel*) abans de migrar res.

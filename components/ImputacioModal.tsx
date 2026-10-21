@@ -71,8 +71,19 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
   const round4 = (n: number) => Math.round(n * 10000) / 10000;
   const importFromPercent = (p: number) => round2((p / 100) * totalFactura);
 
+  // At exactly 100% the last amount takes the remainder, as the store does when saving, so that
+  // what is shown is what is saved (e.g. 50% + 50% of 10,01 € is 5,01 € + 5,00 €, not 10,02 €)
+  const closeTo100 = (rows: AllocationRow[]): AllocationRow[] => {
+    if (rows.length < 2) return rows;
+    const pct = round2(rows.reduce((acc, r) => acc + r.percentatge, 0));
+    if (percentCents(pct) !== 10000) return rows;
+    const last = rows.length - 1;
+    const others = rows.slice(0, last).reduce((acc, r) => acc + r.import, 0);
+    return rows.map((r, i) => (i === last ? { ...r, import: round2(totalFactura - others) } : r));
+  };
+
   const updateRow = (index: number, patch: Partial<AllocationRow>) => {
-    setAllocations(prev => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    setAllocations(prev => closeTo100(prev.map((row, i) => (i === index ? { ...row, ...patch } : row))));
   };
 
   const handlePercentChange = (index: number, val: number) => {
@@ -102,7 +113,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
     if (!availableProj) return;
     const totalCurrentPercent = allocations.reduce((acc, c) => acc + c.percentatge, 0);
     const remainingPercent = Math.max(0, round4(100 - totalCurrentPercent));
-    setAllocations([
+    setAllocations(closeTo100([
       ...allocations,
       {
         projecte_id: availableProj.id,
@@ -110,11 +121,11 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
         import: importFromPercent(remainingPercent),
         observacions: ""
       }
-    ]);
+    ]));
   };
 
   const handleRemoveRow = (index: number) => {
-    setAllocations(prev => prev.filter((_, i) => i !== index));
+    setAllocations(prev => closeTo100(prev.filter((_, i) => i !== index)));
   };
 
   const handleSet100 = (index: number) => {
