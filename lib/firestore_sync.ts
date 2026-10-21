@@ -90,10 +90,18 @@ export function subscribeBucket<T>(
   onData: (items: T[], fromCache: boolean) => void,
   onError: (error: Error) => void
 ): Unsubscribe {
+  // Metadata-only snapshots (pending write confirmed) carry the same items: they only matter
+  // when they switch between cache and server data
+  let first = true;
+  let lastFromCache = false;
   return onSnapshot(
     shardsCollection(bucket),
     { includeMetadataChanges: true },
     (snap) => {
+      const fromCache = snap.metadata.fromCache;
+      if (!first && fromCache === lastFromCache && snap.docChanges().length === 0) return;
+      first = false;
+      lastFromCache = fromCache;
       const items: T[] = [];
       for (const d of snap.docs) {
         const map = d.data().items;

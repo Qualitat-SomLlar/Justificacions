@@ -5,6 +5,7 @@ import { Despesa, Imputacio, Projecte, Partida, Equivalencia, ImportSummary, Log
 import { parseA3Excel, cleanStr } from "./parser";
 import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
+import { buildBulkImputacions, buildImputacions, recalcImputacionsForTotals, round2 } from "./imputacions";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth";
 import {
@@ -217,8 +218,6 @@ function describeFirestoreError(e: any): string {
   return `Error de sincronització amb Firestore: ${e?.message || e}`;
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
-const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 const JustificacionsContext = createContext<JustificacionsContextType | null>(null);
 
@@ -265,6 +264,17 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   const historialRef = useRef<LogEntry[]>([]);
   historialRef.current = historial;
+
+  // The actions compute the next lists from the state of the last render. A commit made since
+  // then (render still pending) would be overwritten, so a second one is refused instead.
+  const commitSeq = useRef(0);
+  const seqAtRender = commitSeq.current;
+  // Set when commit refuses an action, so the log entry that follows is not written either
+  const refusedRef = useRef(false);
+  const markRefused = () => {
+    refusedRef.current = true;
+    queueMicrotask(() => { refusedRef.current = false; });
+  };
 
   const reportSyncError = (e: any) => {
     console.warn("Firestore:", e);
@@ -432,6 +442,26 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   // acting on stale data would overwrite newer changes.
   const isLoading = !catalogLoaded || cloudStatus === "checking" || loadedExercici !== activeExercici;
 
+  // After the first load the screen is never unmounted again: later loads (exercici switch)
+  // are shown as an overlay
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  useEffect(() => {
+    if (!isLoading) setHasLoadedOnce(true);
+  }, [isLoading]);
+
+  const loadingScreen = (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100 p-4">
+      <div className="flex flex-col items-center space-y-4">
+        <div className="h-12 w-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xl shadow-lg animate-pulse">
+          SL
+        </div>
+        <p className="text-slate-600 text-sm font-medium animate-pulse">
+          Carregant les dades de l&apos;exercici {activeExercici}...
+        </p>
+      </div>
+    </div>
+  );
+
   /**
    * Saves new versions of one or more lists in a single step: state, localStorage (only when
    * there's no cloud sync) and, in Firestore, only the items/fields that differ from what this
@@ -444,7 +474,16 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     partides?: Partida[];
     equivalencies?: Equivalencia[];
   }) => {
-    if (refuseIfReadOnly()) return;
+    if (refuseIfReadOnly() || loadedExercici !== activeExercici) {
+      markRefused();
+      return;
+    }
+    if (commitSeq.current !== seqAtRender) {
+      console.warn("commit refusat: hi ha un canvi anterior pendent de reflectir-se a la pantalla");
+      markRefused();
+      return;
+    }
+    commitSeq.current++;
     const changes: BucketChanges[] = [];
     const local = !cloudRef.current;
 
@@ -504,6 +543,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     detall: string,
     extra?: { despesa_id?: string; projecte_id?: string; comentaris?: string }
   ) => {
+    if (refusedRef.current) return;
     const newEntry: LogEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       timestamp: new Date().toISOString(),
@@ -689,32 +729,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     }
 
     // If A3 changed an invoice total, keep the percentages and recalculate the amounts
-    let updatedImputacions: Imputacio[] | undefined;
-    if (changedTotals.size > 0) {
-      const now = new Date().toISOString();
-      updatedImputacions = imputacions.map(imp => {
-        const newTotal = changedTotals.get(imp.despesa_id);
-        if (newTotal === undefined) return imp;
-        return {
-          ...imp,
-          import: round2((imp.percentatge / 100) * newTotal),
-          data_actualitzacio: now
-        };
-      });
-      // Invoices imputed at exactly 100%: the last imputacio takes the remainder (to the cent)
-      const byDespesa = new Map<string, number[]>();
-      updatedImputacions.forEach((imp, i) => {
-        if (!changedTotals.has(imp.despesa_id)) return;
-        byDespesa.set(imp.despesa_id, [...(byDespesa.get(imp.despesa_id) || []), i]);
-      });
-      for (const [despesaId, idxs] of byDespesa.entries()) {
-        const pct = round2(idxs.reduce((acc, i) => acc + updatedImputacions![i].percentatge, 0));
-        if (percentCents(pct) !== 10000) continue;
-        const lastIdx = idxs[idxs.length - 1];
-        const others = idxs.slice(0, -1).reduce((acc, i) => acc + updatedImputacions![i].import, 0);
-        updatedImputacions[lastIdx] = { ...updatedImputacions[lastIdx], import: round2(changedTotals.get(despesaId)! - others) };
-      }
-    }
+    const updatedImputacions = recalcImputacionsForTotals(imputacions, changedTotals, new Date().toISOString());
 
     commit({ despeses: updatedList, imputacions: updatedImputacions });
 
@@ -736,34 +751,10 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   ) => {
     const currentDespesa = despeses.find(d => d.id === despesaId);
     const otherImputacions = imputacions.filter(imp => imp.despesa_id !== despesaId);
-    const now = new Date().toISOString();
-    const usuari = currentUserEmail();
-
-    // One imputacio per project (the ID is despesa_projecte): repeated rows are merged
-    const byProject = new Map<string, Imputacio>();
-    for (const a of allocations) {
-      if (!a.projecte_id || (a.percentatge <= 0 && a.import === 0)) continue;
-      const prev = byProject.get(a.projecte_id);
-      byProject.set(a.projecte_id, {
-        id: `${despesaId}_${a.projecte_id}`,
-        despesa_id: despesaId,
-        projecte_id: a.projecte_id,
-        percentatge: round4((prev?.percentatge || 0) + a.percentatge),
-        import: round2((prev?.import || 0) + a.import),
-        observacions: [prev?.observacions, a.observacions].filter(Boolean).join(" / "),
-        data_actualitzacio: now,
-        usuari
-      });
-    }
-    const newImps = Array.from(byProject.values());
-
-    // At exactly 100% the amounts must add up to the invoice to the cent (e.g. 50% + 50% of 10,01 €)
-    const totalPercent = round2(newImps.reduce((acc, curr) => acc + curr.percentatge, 0));
-    if (currentDespesa && newImps.length > 0 && percentCents(totalPercent) === 10000) {
-      const last = newImps[newImps.length - 1];
-      const others = newImps.slice(0, -1).reduce((acc, i) => acc + i.import, 0);
-      last.import = round2(currentDespesa.total_factura - others);
-    }
+    const newImps = buildImputacions(despesaId, currentDespesa?.total_factura, allocations, {
+      now: new Date().toISOString(),
+      usuari: currentUserEmail(),
+    });
 
     // Reviewing the imputation clears the "modified in A3" warning
     const despesesUpdate = currentDespesa?.modificat_a3
@@ -803,43 +794,13 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     if (despesaIds.length === 0) return;
     const idSet = new Set(despesaIds);
 
-    // Merge repeated projects and drop empty rows
-    const merged = new Map<string, number>();
-    for (const a of allocations) {
-      if (!a.projecte_id || !(a.percentatge > 0)) continue;
-      merged.set(a.projecte_id, (merged.get(a.projecte_id) || 0) + a.percentatge);
-    }
-    const validAllocations = Array.from(merged.entries()).map(([projecte_id, percentatge]) => ({ projecte_id, percentatge }));
-    const totalPercent = round2(validAllocations.reduce((acc, curr) => acc + curr.percentatge, 0));
-    const closesInvoice = percentCents(totalPercent) === 10000;
-
     const preservedImputacions = imputacions.filter(imp => !idSet.has(imp.despesa_id));
-    const newImps: Imputacio[] = [];
-    const now = new Date().toISOString();
-    const usuari = currentUserEmail();
-
-    for (const d of despeses) {
-      if (!idSet.has(d.id)) continue;
-      let totalImport = 0;
-      validAllocations.forEach((alloc, i) => {
-        const isLast = i === validAllocations.length - 1;
-        // At 100% the last project takes the remainder so the amounts add up to the invoice to the cent
-        const importAlloc = isLast && closesInvoice
-          ? round2(d.total_factura - totalImport)
-          : round2((alloc.percentatge / 100) * d.total_factura);
-        totalImport += importAlloc;
-        newImps.push({
-          id: `${d.id}_${alloc.projecte_id}`,
-          despesa_id: d.id,
-          projecte_id: alloc.projecte_id,
-          percentatge: alloc.percentatge,
-          import: importAlloc,
-          observacions: comentaris || "",
-          data_actualitzacio: now,
-          usuari
-        });
-      });
-    }
+    const { imputacions: newImps, validAllocations } = buildBulkImputacions(
+      despeses.filter(d => idSet.has(d.id)),
+      allocations,
+      comentaris || "",
+      { now: new Date().toISOString(), usuari: currentUserEmail() }
+    );
 
     // Reviewing the imputation clears the "modified in A3" warning (as saveImputacions does)
     const despesesUpdate = despeses.some(d => idSet.has(d.id) && d.modificat_a3)
@@ -1168,19 +1129,18 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         reloadSeedData,
       }}
     >
-      {isLoading ? (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100 p-4">
-          <div className="flex flex-col items-center space-y-4">
-            <div className="h-12 w-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xl shadow-lg animate-pulse">
-              SL
-            </div>
-            <p className="text-slate-600 text-sm font-medium animate-pulse">
-              Carregant les dades de l&apos;exercici {activeExercici}...
-            </p>
-          </div>
-        </div>
+      {isLoading && !hasLoadedOnce ? (
+        loadingScreen
       ) : (
-        children
+        <>
+          {children}
+          {/* Switching exercici: the screen stays mounted (filters, selection) under the loader */}
+          {isLoading && (
+            <div className="fixed inset-0 z-[60] bg-slate-100/80 backdrop-blur-sm" role="status" aria-live="polite">
+              {loadingScreen}
+            </div>
+          )}
+        </>
       )}
     </JustificacionsContext.Provider>
   );
