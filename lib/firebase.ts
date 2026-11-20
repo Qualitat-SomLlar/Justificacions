@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, Auth } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, OAuthProvider, Auth } from "firebase/auth";
 import {
   getFirestore,
   initializeFirestore,
@@ -43,5 +43,16 @@ export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: "select_account"
 });
+
+// Microsoft (Entra ID / Microsoft 365). Only work or school accounts: with the organisation's
+// tenant ID, only that directory; otherwise any organisation ("organizations"), and the e-mail
+// domain check decides. The app registration in Azure must be single-tenant (see README).
+export const microsoftProvider = new OAuthProvider("microsoft.com");
+microsoftProvider.setCustomParameters({
+  prompt: "select_account",
+  tenant: process.env.NEXT_PUBLIC_MICROSOFT_TENANT_ID || "organizations",
+});
+microsoftProvider.addScope("email");
+microsoftProvider.addScope("profile");
 
 export { app, auth, db };

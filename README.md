@@ -24,7 +24,7 @@ Aplicatiu web per a la gestió, control i imputació econòmica de justificacion
 ## Tecnologies
 
 - **Frontend:** Next.js 15 (App Router), React 19, TypeScript i Tailwind CSS
-- **Dades i autenticació:** Firebase (Firestore + Firebase Auth amb Google)
+- **Dades i autenticació:** Firebase (Firestore + Firebase Auth amb Google i Microsoft)
 - **Desplegament:** Vercel
 - **Tests:** Vitest · **CI:** GitHub Actions
 
@@ -64,7 +64,21 @@ Cada llista es reparteix en un nombre fix de documents (*shards*) i cada element
 
 - Si el núvol encara té un format antic (v1 o v2), l'aplicació s'obre **només de consulta** fins que algú completi la migració amb el botó *Revisar i migrar*. Convé fer abans una còpia (exportar l'Excel de cada exercici).
 - Si Firestore no respon, l'aplicació també queda només de consulta per no perdre canvis.
-- Les regles de Firestore s'han de publicar manualment des de la consola de Firebase (`firestore.rules` és la referència). Han de permetre els mateixos comptes que `ALLOWED_DOMAINS` / `ALLOWED_EMAILS` a `lib/auth.tsx`.
+- Les regles de Firestore s'han de publicar manualment des de la consola de Firebase (`firestore.rules` és la referència). Han de permetre els mateixos comptes que `ALLOWED_DOMAINS` / `ALLOWED_EMAILS` a `lib/access.ts`.
+
+## Inici de sessió amb Microsoft
+
+L'accés amb comptes de Microsoft 365 (Outlook corporatiu) necessita aquesta configuració, que no és al codi:
+
+1. **Azure (Microsoft Entra ID) > App registrations > New registration**
+   - *Supported account types*: **Accounts in this organizational directory only (single tenant)**. És imprescindible: les regles de Firestore accepten els comptes de Microsoft perquè només els del directori de l'entitat poden iniciar sessió amb aquesta aplicació.
+   - *Redirect URI* (Web): `https://justificacions.firebaseapp.com/__/auth/handler`.
+   - A *Certificates & secrets*, creeu un *client secret* i copieu-ne el valor.
+2. **Firebase > Authentication > Sign-in method > Add new provider > Microsoft**: enganxeu l'*Application (client) ID* i el *client secret*, i deseu.
+3. **Vercel > Settings > Environment Variables**: `NEXT_PUBLIC_MICROSOFT_TENANT_ID` = el *Directory (tenant) ID* de l'aplicació. Torneu a desplegar.
+4. **Firebase > Firestore > Rules**: publiqueu el contingut de `firestore.rules`.
+
+Si un correu ja tenia accés amb Google, en entrar amb Microsoft l'aplicatiu demana entrar amb Google i, un cop dins, vincula tots dos mètodes al mateix compte.
 
 ## Proves manuals
 
