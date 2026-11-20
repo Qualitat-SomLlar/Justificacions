@@ -6,6 +6,8 @@ Els tests automàtics cobreixen la lògica (parser, imputacions, exportador, sin
 
 Provat a mà a l'aplicació en marxa, sense Firestore: importació d'A3 (full i columnes detectats, factura d'un altre any no importada, reimportació sense duplicats, canvi de total a l'A3 amb recàlcul i avís), imputació (50/50 de 10,01 €, 33,33/33,33/33,34 i abonament quadrats al cèntim, en bloc i factura a factura, avís d'A3 netejat), canvi d'exercici (filtre conservat, dades separades), exportació (xlsx vàlid), equivalències (reassigna només la factura afectada) i historial.
 
+Pressupost, període i informes (secció 7b), provat també en local amb tres projectes inventats: avisos de pressupost i de període en imputar (individual i en bloc), columna i avisos del panell, pantalla d'informes, filtre i descàrrega de l'Excel.
+
 **Encara cal fer vosaltres**, perquè necessiten Firebase i comptes reals: la secció 1 (accés amb Google), la 2 (migració), la 5 (dos usuaris) i la comprovació de l'Excel exportat obert amb Excel.
 
 ## 0. Preparació (una sola vegada)
@@ -63,6 +65,17 @@ Provat a mà a l'aplicació en marxa, sense Firestore: importació d'A3 (full i 
 - [ ] L'Excel té el full *Resum Panel* i un full per partida.
 - [ ] Els totals del resum coincideixen amb el panell de l'aplicació (total factura, cobert, disponible).
 - [ ] Cada projecte amb imputacions té la seva columna (també els tancats); els projectes esborrats del catàleg surten com a `(DESCONEGUT)`.
+
+## 7b. Pressupost, període i informes
+
+- [ ] A *Projectes*, un projecte amb *Pressupost total* i període `dd/mm/aaaa-dd/mm/aaaa` el mostra al panell amb la barra d'execució; sense pressupost surt «Sense pressupost».
+- [ ] En imputar una factura a un projecte que arribaria al 90% o superaria el pressupost, el diàleg avisa (i deixa guardar igualment).
+- [ ] En imputar una factura amb data fora del període del projecte, el diàleg ho avisa; en canviar de projecte l'avís s'actualitza.
+- [ ] A la imputació en bloc els avisos tenen en compte totes les factures seleccionades i que les seves imputacions anteriors es substitueixen.
+- [ ] El panell mostra l'avís de pressupost superat/proper al límit i el d'imputacions fora de període, i els enllaços porten a *Informes*.
+- [ ] *Informes* mostra, per a un projecte, el total per partida, l'execució i el detall, amb les factures fora de període marcades i el filtre «Només fora de període».
+- [ ] L'Excel de l'informe s'obre bé amb Excel i el full *Resum* coincideix amb la pantalla.
+- [ ] Comproveu que la data que es compara és la que voleu: es fa servir la **data d'emissió** de la factura, no la de pagament.
 
 ## 8. Catàleg i historial
 

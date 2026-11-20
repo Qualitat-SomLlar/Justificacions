@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { X, Plus, Trash2, AlertTriangle, CheckCircle2, Info, Building2, Calendar, FileText, Percent, Euro } from "lucide-react";
 import { Despesa, Projecte, Imputacio } from "@/lib/types";
 import { useJustificacions } from "@/lib/store";
 import { percentCents } from "@/lib/sync_utils";
+import { formatDateCa, formatPeriode, isOutsidePeriode, parsePeriode } from "@/lib/periode";
+import { execucioOf, imputatPerProjecte } from "@/lib/pressupost";
 
 interface ImputacioModalProps {
   despesa: Despesa;
@@ -161,6 +163,39 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
       : hasEmptyProject
         ? "Hi ha una línia sense projecte seleccionat."
         : null;
+
+  // Warnings per row (they don't block saving): invoice outside the project's period, budget reached or exceeded.
+  // The budget counts what the project already has from the other invoices plus this row.
+  const importedByOthers = useMemo(
+    () => imputatPerProjecte(imputacions.filter(imp => imp.despesa_id !== despesa.id)),
+    [imputacions, despesa.id]
+  );
+  const rowWarnings = (row: AllocationRow): { level: "warn" | "danger"; text: string }[] => {
+    const p = projectes.find(item => item.id === row.projecte_id);
+    if (!p) return [];
+    const warnings: { level: "warn" | "danger"; text: string }[] = [];
+    const periode = parsePeriode(p.dates_text);
+    if (isOutsidePeriode(despesa.data_emissio, periode)) {
+      warnings.push({
+        level: "warn",
+        text: `La data de la factura (${formatDateCa(despesa.data_emissio)}) és fora del període de justificació de ${p.codi} (${formatPeriode(periode)}). Aquesta despesa podria no ser elegible.`,
+      });
+    }
+    const ex = execucioOf(p.pressupost_total, (importedByOthers.get(p.id) || 0) + row.import);
+    const fmt = (n: number) => n.toLocaleString("ca-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (ex.estat === "excedit") {
+      warnings.push({
+        level: "danger",
+        text: `Amb aquesta imputació ${p.codi} superaria el seu pressupost: ${fmt(ex.imputat)} € sobre ${fmt(ex.pressupost)} € (${fmt(ex.pct)}%).`,
+      });
+    } else if (ex.estat === "alerta") {
+      warnings.push({
+        level: "warn",
+        text: `Amb aquesta imputació ${p.codi} arribaria al ${fmt(ex.pct)}% del seu pressupost (queden ${fmt(ex.disponible)} €).`,
+      });
+    }
+    return warnings;
+  };
 
   const handleSave = () => {
     if (saveBlockReason) return;
@@ -339,6 +374,19 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
                   </button>
                 </div>
               </div>
+
+              {rowWarnings(row).map((w, wi) => (
+                <div
+                  key={wi}
+                  role="status"
+                  className={`p-2.5 rounded-lg border text-xs flex items-start space-x-2 ${
+                    w.level === "danger" ? "bg-rose-50 border-rose-200 text-rose-800" : "bg-amber-50 border-amber-200 text-amber-800"
+                  }`}
+                >
+                  <AlertTriangle className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${w.level === "danger" ? "text-rose-600" : "text-amber-600"}`} />
+                  <span>{w.text}</span>
+                </div>
+              ))}
             </div>
           ))}
 

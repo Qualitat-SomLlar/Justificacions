@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Despesa, Partida } from "@/lib/types";
+import { imputatPerProjecte } from "@/lib/pressupost";
 import ImputacioModal from "@/components/ImputacioModal";
 import ImportModal from "@/components/ImportModal";
 import {
@@ -357,6 +358,14 @@ function DespesesContent() {
   const selectedWithImputacions = useMemo(() => {
     return effectiveSelectedIds.filter(id => (imputacionsByDespesa.get(id)?.length ?? 0) > 0).length;
   }, [effectiveSelectedIds, imputacionsByDespesa]);
+
+  // For the warnings of the bulk imputation: dates of the selection, and what each project already
+  // has from the invoices that are not selected (the selected ones get replaced)
+  const selectedDates = useMemo(() => selectedExpenses.map(d => d.data_emissio), [selectedExpenses]);
+  const imputatAltres = useMemo(() => {
+    const selected = new Set(effectiveSelectedIds);
+    return Object.fromEntries(imputatPerProjecte(imputacions.filter(imp => !selected.has(imp.despesa_id))));
+  }, [imputacions, effectiveSelectedIds]);
 
   // Selected rows per group, computed once per render cycle
   const groupSelectedCount = useMemo(() => {
@@ -1269,6 +1278,8 @@ function DespesesContent() {
         selectedCount={selectedCount}
         selectedTotal={selectedTotal}
         withImputacionsCount={selectedWithImputacions}
+        selectedDates={selectedDates}
+        imputatAltres={imputatAltres}
         projectes={projectes}
         onClose={() => setIsBulkImputarOpen(false)}
         onConfirm={handleBulkImputarConfirm}

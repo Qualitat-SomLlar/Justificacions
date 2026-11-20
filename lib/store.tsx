@@ -74,7 +74,7 @@ interface JustificacionsContextType {
   runMigration: (plan: MigrationPlan) => Promise<void>;
   activeExercici: number;
   setActiveExercici: (y: number) => void;
-  importA3File: (fileBuffer: ArrayBuffer, preferredSheet?: string) => Promise<ImportSummary>;
+  importA3File: (fileBuffer: ArrayBuffer, preferredSheet?: string, extraSheets?: string[]) => Promise<ImportSummary>;
   saveImputacions: (
     despesaId: string,
     allocations: { projecte_id: string; percentatge: number; import: number; observacions?: string }[],
@@ -676,7 +676,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   };
 
   // Import A3 File
-  const importA3File = async (fileBuffer: ArrayBuffer, preferredSheet?: string): Promise<ImportSummary> => {
+  const importA3File = async (fileBuffer: ArrayBuffer, preferredSheet?: string, extraSheets: string[] = []): Promise<ImportSummary> => {
     if (readOnlyRef.current) {
       throw new Error(
         cloudStatus === "migration_pending"
@@ -684,7 +684,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
           : "No hi ha connexió amb el núvol: no es pot importar fins que es resolgui."
       );
     }
-    const parsed = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet);
+    const parsed = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet, extraSheets);
 
     // Only invoices of the active exercici are imported: the others would end up in this
     // exercici's bucket (and be duplicated when imported again under their own exercici)
@@ -724,9 +724,37 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       }
     }
 
+    // Orphans: despeses of a reimported document that A3 no longer has (corrected invoice or a
+    // different split by partida). Kept they would count twice: removed when nothing is imputed,
+    // otherwise kept and flagged so someone moves the imputation before deleting them.
+    // Payroll stored by earlier versions is removed the same way (personal data).
+    const orfes = new Set(parsed.despesesOrfes || []);
+    const personals = new Set(parsed.despesesPersonals || []);
+    const imputedIds = new Set(imputacions.map(imp => imp.despesa_id));
+    let orfesEliminades = 0;
+    let orfesAmbImputacions = 0;
+    let personalsEliminades = 0;
     for (const remaining of existingMap.values()) {
-      updatedList.push(remaining);
+      if (personals.has(remaining.id) && !imputedIds.has(remaining.id)) {
+        personalsEliminades++;
+      } else if (!orfes.has(remaining.id)) {
+        updatedList.push(remaining);
+      } else if (imputedIds.has(remaining.id)) {
+        orfesAmbImputacions++;
+        updatedList.push({ ...remaining, modificat_a3: true });
+      } else {
+        orfesEliminades++;
+      }
     }
+    summary.orfesEliminades = orfesEliminades;
+    summary.orfesAmbImputacions = orfesAmbImputacions;
+    summary.personalsEliminades = personalsEliminades;
+    // Reported by document number (no personal data); nothing is changed automatically
+    const desaparegudes = (parsed.despesesDesaparegudes || [])
+      .map(id => despeses.find(d => d.id === id))
+      .filter((d): d is Despesa => !!d);
+    const docsDesapareguts = Array.from(new Set(desaparegudes.map(d => d.ndoc_a3)));
+    summary.docsDesapareguts = docsDesapareguts;
 
     // If A3 changed an invoice total, keep the percentages and recalculate the amounts
     const updatedImputacions = recalcImputacionsForTotals(imputacions, changedTotals, new Date().toISOString());
@@ -737,7 +765,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     recordLog(
       "importacio_a3",
       `Volcat d'Excel d'A3 Processat (exercici ${activeExercici})`,
-      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} ja existents (${summary.facturesModificades} amb canvis a l'A3, ${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.${altresExercicis > 0 ? ` Atenció: ${altresExercicis} factures tenen data d'un altre exercici i no s'han importat.` : ""}`
+      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} ja existents (${summary.facturesModificades} amb canvis a l'A3, ${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.${orfesEliminades > 0 ? ` S'han eliminat ${orfesEliminades} despeses sense imputacions que l'A3 ja no té (factura corregida o document repartit d'una altra manera).` : ""}${orfesAmbImputacions > 0 ? ` Atenció: ${orfesAmbImputacions} despeses que l'A3 ja no té tenen imputacions i s'han marcat com a modificades per revisar-les.` : ""}${altresExercicis > 0 ? ` Atenció: ${altresExercicis} factures tenen data d'un altre exercici i no s'han importat.` : ""}${summary.fullsAfegits?.length ? ` Fulls afegits: ${summary.fullsAfegits.join(", ")}.` : ""}${summary.liniesPersonalExcloses ? ` ${summary.liniesPersonalExcloses} línies de nòmines sense equivalència no s'han importat.` : ""}${personalsEliminades > 0 ? ` S'han eliminat ${personalsEliminades} despeses de nòmines desades per versions anteriors.` : ""}${docsDesapareguts.length > 0 ? ` Atenció: ${docsDesapareguts.length} documents existents dins del rang d'apunts del fitxer ja no hi apareixen (esborrats o renumerats a l'A3?): ${docsDesapareguts.slice(0, 30).join(", ")}${docsDesapareguts.length > 30 ? "…" : ""}.` : ""}`
     );
 
     return summary;

@@ -76,6 +76,24 @@ export interface ImportSummary {
   fullUtilitzat?: string;
   columnesDetectades?: { camp: string; nomColumna: string; trobada: boolean }[];
   comptesSenseCorrespondencia?: { compte: string; descripcio: string; count: number }[];
+  /** IDs de despeses existents d'un document present a la importació que l'A3 ja no té (orfes) */
+  despesesOrfes?: string[];
+  /** Orfes eliminades (no tenien imputacions) */
+  orfesEliminades?: number;
+  /** Orfes que es mantenen perquè tenen imputacions: marcades com a modificades a l'A3 */
+  orfesAmbImputacions?: number;
+  /** IDs de despeses existents amb nº d'apunt dins del rang del fitxer que no hi apareixen */
+  despesesDesaparegudes?: string[];
+  /** Nº de document A3 de les despeses desaparegudes (per mostrar-les) */
+  docsDesapareguts?: string[];
+  /** IDs de despeses de nòmines sense equivalència desades per versions anteriors: s'eliminen */
+  despesesPersonals?: string[];
+  /** Despeses de nòmines eliminades en aquesta importació */
+  personalsEliminades?: number;
+  /** Línies de nòmines (comptes 640-642) sense equivalència: no s'importen */
+  liniesPersonalExcloses?: number;
+  /** Fulls addicionals del fitxer importats juntament amb el principal (p. ex. «Negatius») */
+  fullsAfegits?: string[];
 }
 
 export interface LogEntry {

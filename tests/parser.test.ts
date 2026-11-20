@@ -154,3 +154,172 @@ describe("parseA3Excel", () => {
     expect(() => parseA3Excel(workbookBuffer([HEADERS]), EQS)).toThrow();
   });
 });
+
+// Real A3 export headers: "numapunte" (entry) comes before "Nº document A3" (document)
+const A3_HEADERS = [
+  "numapunte", "Proveidor", "NIF Proveidor", "Nº document A3", "Nº factura", "Data", "Compte despesa",
+  "Descripció compte despesa", "Base imposable", "Import IVA", "Import IRPF", "Import total de línia", "Total document A3",
+];
+const a3Row = (apunte: number, doc: string, fra: string, compte: string, base: number, iva: number, irpf: number) =>
+  [apunte, "Prov", "B1", doc, fra, "01/02/2026", compte, "DESC", base, iva, irpf, Math.round((base + iva - irpf) * 100) / 100, 0];
+
+describe("parseA3Excel with the A3 export layout", () => {
+  it("reads the document number from «Nº document A3», not from numapunte", () => {
+    const res = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(108637, "2026/603", "F-1", "629000000", 100, 21, 0)]), EQS);
+    expect(res.columnesDetectades?.find(c => c.camp === "Document A3")?.nomColumna).toBe("Nº document A3");
+    expect(res.despeses[0].ndoc_a3).toBe("2026/603");
+    expect(res.despeses[0].numapunte).toBe("108637");
+  });
+
+  it("uses the entry number when a line has no document number", () => {
+    const res = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(117683, "", "", "629000000", 50, 0, 0)]), EQS);
+    expect(res.despeses[0].ndoc_a3).toBe("117683");
+  });
+
+  it("subtracts IRPF once: A3's line total is already base + IVA - IRPF", () => {
+    const res = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(1, "2026/84", "F-1", "629000000", 3824.7, 803.19, 573.71)]), EQS);
+    const d = res.despeses[0];
+    expect(d.cost_total).toBe(4627.89);
+    expect(d.total_factura).toBe(4054.18);
+  });
+
+  it("keeps the same despesa when A3 corrects the invoice number", () => {
+    const first = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(1, "2026/474", "A-V2026-0000328360", "629000000", 50, 0, 0)]), EQS);
+    const second = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(1, "2026/474", "A-V2026-00000328360", "629000000", 50, 0, 0)]), EQS, first.despeses);
+    expect(second.despeses).toHaveLength(1);
+    expect(second.despeses[0].id).toBe(first.despeses[0].id);
+    expect(second.facturesNoves).toBe(0);
+    expect(second.despesesOrfes).toEqual([]);
+  });
+
+  it("relinks despeses imported when ndoc_a3 held the entry number", () => {
+    const fresh = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(108637, "2026/603", "F-1", "629000000", 100, 21, 0)]), EQS);
+    const old = fresh.despeses.map(d => ({ ...d, id: "108637_F-1_DD_SERVEIS", ndoc_a3: "108637", numapunte: "108637" }));
+    const res = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(108637, "2026/603", "F-1", "629000000", 100, 21, 0)]), EQS, old);
+    expect(res.despeses[0].id).toBe("108637_F-1_DD_SERVEIS");
+    expect(res.despeses[0].ndoc_a3).toBe("2026/603");
+    expect(res.facturesNoves).toBe(0);
+  });
+
+  it("returns as orphans the parts of a reimported document that A3 no longer has", () => {
+    const first = parseA3Excel(workbookBuffer([
+      A3_HEADERS,
+      a3Row(1, "2026/113", "F-1", "629000000", 100, 0, 0),
+      a3Row(1, "2026/113", "F-1", "640000000", 50, 0, 0),
+    ]), EQS);
+    expect(first.despeses).toHaveLength(2);
+    // The second line is now booked to the first account: one despesa for the whole document
+    const second = parseA3Excel(workbookBuffer([
+      A3_HEADERS,
+      a3Row(1, "2026/113", "F-1", "629000000", 100, 0, 0),
+      a3Row(1, "2026/113", "F-1", "629000000", 50, 0, 0),
+    ]), EQS, first.despeses);
+    expect(second.despeses).toHaveLength(1);
+    expect(second.despeses[0].total_factura).toBe(150);
+    const rrhh = first.despeses.find(d => d.partida_id === "DD_RRHH")!;
+    expect(second.despesesOrfes).toEqual([rrhh.id]);
+  });
+
+  it("relinks or drops despeses imported with a row-number ID by invoice and partida", () => {
+    const fresh = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(0, "2026/127", "28-A6DD", "629000000", 0, 0, 0)]), EQS);
+    const legacy = fresh.despeses.map(d => ({ ...d, id: "ROW_28_28-A6DD_DD_SERVEIS", ndoc_a3: "ROW_28", numapunte: "ROW_28" }));
+    const relinked = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(0, "2026/127", "28-A6DD", "629000000", 0, 0, 0)]), EQS, legacy);
+    expect(relinked.despeses[0].id).toBe("ROW_28_28-A6DD_DD_SERVEIS");
+    expect(relinked.despesesOrfes).toEqual([]);
+
+    const twice = [...legacy, { ...legacy[0], id: "ROW_3315_28-A6DD_DD_SERVEIS", ndoc_a3: "ROW_3315", numapunte: "ROW_3315" }];
+    const res = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(0, "2026/127", "28-A6DD", "629000000", 0, 0, 0)]), EQS, twice);
+    expect(res.despesesOrfes?.sort()).toEqual(["ROW_28_28-A6DD_DD_SERVEIS", "ROW_3315_28-A6DD_DD_SERVEIS"]);
+  });
+
+  it("does not import payroll lines without equivalence and flags stored ones", () => {
+    const res = parseA3Excel(workbookBuffer([
+      A3_HEADERS,
+      a3Row(10, "2026/10", "N-1", "640000001", 1500, 0, 200),
+      a3Row(11, "2026/11", "F-11", "629000000", 10, 0, 0),
+    ]), [EQS[0]]);
+    expect(res.liniesPersonalExcloses).toBe(1);
+    expect(res.despeses.map(d => d.ndoc_a3)).toEqual(["2026/11"]);
+    expect(res.comptesSenseCorrespondencia).toEqual([]);
+
+    const stored = { ...res.despeses[0], id: "old_payroll", compte_despesa: "640000001", partida_id: "SENSE_CORRESPONDENCIA", numapunte: "10", ndoc_a3: "2026/10" };
+    const again = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(11, "2026/11", "F-11", "629000000", 10, 0, 0)]), [EQS[0]], [stored]);
+    expect(again.despesesPersonals).toEqual(["old_payroll"]);
+    expect(again.despesesDesaparegudes).toEqual([]);
+  });
+
+  it("imports payroll accounts that do have an equivalence", () => {
+    const res = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(10, "2026/10", "N-1", "640000000", 1500, 0, 0)]), EQS);
+    expect(res.liniesPersonalExcloses).toBe(0);
+    expect(res.despeses[0].partida_id).toBe("DD_RRHH");
+  });
+
+  it("groups ICF loan instalments by flat and concept, keeping the lowest account", () => {
+    const H = [...A3_HEADERS, "Pis", "Descripció línia"];
+    const icf = (compte: string, base: number, pis: string) => [...a3Row(105376, "", "", compte, base, 0, 0), pis, `PRESTEC ICF ${pis}`];
+    const eqs: Equivalencia[] = [
+      { compte: "520000003", descripcio: "", partida_id: "DD_ARRENDAMIENTOS" },
+      { compte: "662300006", descripcio: "", partida_id: "DD_ARRENDAMIENTOS" },
+    ];
+    const res = parseA3Excel(workbookBuffer([
+      H,
+      icf("662300006", 51.43, "EUR1A"),
+      icf("520000003", 211.4, "EUR1A"),
+      icf("520000003", 300, "PERU28"),
+    ]), eqs);
+    expect(res.despeses).toHaveLength(2);
+    const eur = res.despeses.find(d => d.pis === "EUR1A")!;
+    expect(eur.total_factura).toBe(262.83);
+    expect(eur.compte_despesa).toBe("520000003");
+    // Stable ID per flat: a second import finds the same despeses
+    const again = parseA3Excel(workbookBuffer([H, icf("662300006", 51.43, "EUR1A"), icf("520000003", 211.4, "EUR1A"), icf("520000003", 300, "PERU28")]), eqs, res.despeses);
+    expect(again.facturesNoves).toBe(0);
+  });
+
+  it("adds the lines of an extra sheet such as «Negatius», mapped by header", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([A3_HEADERS, a3Row(1, "2026/1", "F-1", "629000000", 100, 21, 0)]), "A Exportar");
+    // Same columns in another order
+    const neg = [...A3_HEADERS].reverse();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([neg, [...a3Row(2, "2026R/3", "AB-1", "629000000", -50, -10.5, 0)].reverse()]), "Negatius");
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+
+    const res = parseA3Excel(buf, EQS, [], "A Exportar", ["Negatius"]);
+    expect(res.fullsAfegits).toEqual(["Negatius"]);
+    const credit = res.despeses.find(d => d.ndoc_a3 === "2026R/3")!;
+    expect(credit.total_factura).toBe(-60.5);
+    expect(parseA3Excel(buf, EQS, [], "A Exportar").despeses).toHaveLength(1);
+  });
+
+  it("reports existing despeses inside the file's entry range that are no longer in it", () => {
+    const first = parseA3Excel(workbookBuffer([
+      A3_HEADERS,
+      a3Row(100, "2026/100", "F-100", "629000000", 10, 0, 0),
+      a3Row(150, "2026/150", "F-150", "629000000", 10, 0, 0),
+      a3Row(300, "2026/300", "F-300", "629000000", 10, 0, 0),
+    ]), EQS);
+    const second = parseA3Excel(workbookBuffer([
+      A3_HEADERS,
+      a3Row(100, "2026/100", "F-100", "629000000", 10, 0, 0),
+      a3Row(200, "2026/200", "F-200", "629000000", 10, 0, 0),
+    ]), EQS, first.despeses);
+    const byDoc = (id: string) => first.despeses.find(d => d.id === id)!.ndoc_a3;
+    // 150 is inside 100-200 and missing; 300 is outside the range (a partial file)
+    expect(second.despesesDesaparegudes?.map(byDoc)).toEqual(["2026/150"]);
+  });
+
+  it("prefers the transfer grid sheet over the full A3 extract", () => {
+    const wb = XLSX.utils.book_new();
+    const big = [A3_HEADERS, ...Array.from({ length: 50 }, (_, i) => a3Row(i + 1, `2026/${i + 1}`, `F-${i}`, "629000000", 1, 0, 0))];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(big), "AExportar_Treball");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Traspassat", ...A3_HEADERS], ["X", ...a3Row(1, "2026/1", "F-0", "629000000", 1, 0, 0)]]), "AExportar_Graella");
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    expect(parseA3Excel(buf, EQS).fullUtilitzat).toBe("AExportar_Graella");
+  });
+
+  it("leaves despeses of documents not in the file untouched", () => {
+    const first = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(1, "2026/1", "F-1", "629000000", 10, 0, 0)]), EQS);
+    const second = parseA3Excel(workbookBuffer([A3_HEADERS, a3Row(2, "2026/2", "F-2", "629000000", 20, 0, 0)]), EQS, first.despeses);
+    expect(second.despesesOrfes).toEqual([]);
+  });
+});
