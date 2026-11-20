@@ -46,6 +46,8 @@ export default function ImportModal({ onClose }: ImportModalProps) {
   const [inspection, setInspection] = useState<WorkbookInspection | null>(null);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [recommendedSheet, setRecommendedSheet] = useState<string>("");
+  // Credit notes kept apart in a "Negatius" sheet are imported together with the main sheet
+  const [includeNegatius, setIncludeNegatius] = useState(true);
   // Cache of inspections per sheet for the current file (avoids re-reading the workbook)
   const inspectionCache = useRef<Map<string, WorkbookInspection>>(new Map());
 
@@ -150,7 +152,7 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     try {
       // Let the spinner paint before the synchronous parse blocks the thread
       await yieldToBrowser();
-      const res = await importA3File(fileBuffer, selectedSheet);
+      const res = await importA3File(fileBuffer, selectedSheet, includeNegatius && negatiusSheet ? [negatiusSheet] : []);
       setExerciciImportat(exercici);
       setSummary(res);
     } catch (err: any) {
@@ -175,6 +177,8 @@ export default function ImportModal({ onClose }: ImportModalProps) {
     if (busyRef.current) return;
     fileInputRef.current?.click();
   };
+
+  const negatiusSheet = inspection?.sheets.find(s => /negatiu/i.test(s.name) && s.name !== selectedSheet && s.rowCount > 0)?.name;
 
   // Summary derived values
   const linesImportades = summary ? summary.despeses.length : 0;
@@ -349,6 +353,20 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 <p className="text-[11px] text-slate-500 mt-1">
                   Si el fitxer conté diversos fulls (com ara <em>'A Exportar'</em> o <em>'APEN_GASTOS'</em>), pots canviar-lo aquí lliurement.
                 </p>
+                {negatiusSheet && (
+                  <label className="mt-2 flex items-start space-x-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeNegatius}
+                      disabled={isInspecting || isProcessing}
+                      onChange={(e) => setIncludeNegatius(e.target.checked)}
+                      className="mt-0.5 accent-emerald-600"
+                    />
+                    <span>
+                      Incloure també el full <strong>'{negatiusSheet}'</strong> (abonaments i imports negatius separats de l'exportació).
+                    </span>
+                  </label>
+                )}
               </div>
 
               {/* Columns diagnostic */}
@@ -493,6 +511,26 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                   <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                   <span>
                     <strong>{altresExercicis} {altresExercicis === 1 ? "factura és" : "factures són"} d'un altre exercici</strong> (any fiscal diferent de {exerciciImportat}) i <strong>no s'han importat</strong>. Si les necessites, canvia l'exercici actiu a dalt i torna a pujar el fitxer.
+                  </span>
+                </div>
+              )}
+
+              {((summary.liniesPersonalExcloses ?? 0) > 0 || (summary.personalsEliminades ?? 0) > 0) && (
+                <div role="status" className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Les nòmines (comptes 640-642) sense equivalència no s&apos;importen perquè contenen dades personals.
+                    {(summary.liniesPersonalExcloses ?? 0) > 0 && <> S&apos;han descartat <strong>{summary.liniesPersonalExcloses}</strong> línies.</>}
+                    {(summary.personalsEliminades ?? 0) > 0 && <> S&apos;han eliminat <strong>{summary.personalsEliminades}</strong> despeses de nòmines desades per versions anteriors.</>}
+                  </span>
+                </div>
+              )}
+
+              {(summary.docsDesapareguts?.length ?? 0) > 0 && (
+                <div role="alert" className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>{summary.docsDesapareguts!.length} documents</strong> que ja teníeu, amb número d&apos;apunt dins del rang d&apos;aquest fitxer, no hi apareixen: potser s&apos;han esborrat o renumerat a l&apos;A3. No s&apos;han modificat; reviseu-los (la llista és a l&apos;historial): {summary.docsDesapareguts!.slice(0, 8).join(", ")}{summary.docsDesapareguts!.length > 8 ? "…" : ""}
                   </span>
                 </div>
               )}

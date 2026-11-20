@@ -184,6 +184,10 @@ function scoreSheet(sheetName: string, worksheet: XLSX.WorkSheet): number {
   if (joined.includes("fulldesti") || joined.includes("partida") || joined.includes("desti")) score += 30;
   if (joined.includes("base")) score += 10;
   if (joined.includes("total")) score += 10;
+  // Working grid of lines already checked and marked to transfer ("Traspassat"): it is what
+  // gets justified, not the full A3 extract (which also has other years and payroll)
+  if (sLower.includes("graella")) score += 40;
+  if (joined.includes("traspassat")) score += 20;
 
   score += Math.min(rawRows.length / 100, 20);
   return score;
@@ -291,10 +295,12 @@ export function parseA3Excel(
   fileBuffer: ArrayBuffer | Uint8Array,
   equivalencies: Equivalencia[],
   existingDespeses: Despesa[] = [],
-  preferredSheetName?: string
+  preferredSheetName?: string,
+  /** Other sheets with the same columns whose lines are added (e.g. "Negatius": credit notes) */
+  extraSheetNames: string[] = []
 ): ImportSummary {
   const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: false });
-  
+
   const sheetName = findBestSheet(workbook, preferredSheetName);
   const worksheet = workbook.Sheets[sheetName];
   if (!worksheet) {
@@ -310,6 +316,25 @@ export function parseA3Excel(
   const headerRowIndex = findHeaderRowIndex(rawRows);
   const headers = (rawRows[headerRowIndex] || []).map(h => String(h || "").trim());
   const cols = detectColumns(headers);
+
+  // Lines of the extra sheets, reordered to the main sheet's columns by header name
+  const fullsAfegits: string[] = [];
+  for (const extra of extraSheetNames) {
+    const ws = workbook.Sheets[extra];
+    if (!ws || extra === sheetName) continue;
+    const xRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    const xHeaderIdx = findHeaderRowIndex(xRows);
+    const xHeaders = (xRows[xHeaderIdx] || []).map(h => cleanStr(h));
+    const mapIdx = headers.map(h => (cleanStr(h) ? xHeaders.indexOf(cleanStr(h)) : -1));
+    // Only sheets with the essential columns of the main sheet
+    const essentials = [cols.compte, cols.base, cols.docA3].filter(c => c !== -1);
+    if (essentials.some(c => mapIdx[c] === -1)) continue;
+    for (let i = xHeaderIdx + 1; i < xRows.length; i++) {
+      const xr = xRows[i];
+      if (xr) rawRows.push(mapIdx.map(j => (j === -1 ? undefined : xr[j])));
+    }
+    fullsAfegits.push(extra);
+  }
 
   const colApunte = cols.apunte;
   const colFin = cols.fin;
@@ -362,6 +387,8 @@ export function parseA3Excel(
     sampleRow: any[];
     docA3: string;
     apunte: string;
+    /** Stable part of the ID for groups without invoice number (ICF instalments) */
+    idHint: string;
     factura: string;
     proveidor: string;
     cifList: Set<string>;
@@ -388,6 +415,11 @@ export function parseA3Excel(
   const orderOfClaves: string[] = [];
 
   let totalFilesLlegides = 0;
+  let liniesPersonalExcloses = 0;
+  // Range of entry numbers in the file: existing despeses inside it that no longer appear
+  // were probably deleted or renumbered in A3
+  let apuntMin = Infinity;
+  let apuntMax = -Infinity;
   const unmappedAccountsTracker = new Map<string, { desc: string; count: number }>();
 
   for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
@@ -440,6 +472,19 @@ export function parseA3Excel(
       }
     }
 
+    // Payroll (salaries, severance, social security) without an equivalence is never stored:
+    // its lines carry personal data and are justified outside this tool
+    if (targetPartida === "SENSE_CORRESPONDENCIA" && isPersonalAccount(rowCompte)) {
+      liniesPersonalExcloses++;
+      continue;
+    }
+
+    const apunteNum = Number(apunteVal);
+    if (apunteVal && Number.isFinite(apunteNum) && apunteNum > 0) {
+      apuntMin = Math.min(apuntMin, apunteNum);
+      apuntMax = Math.max(apuntMax, apunteNum);
+    }
+
     // Track unmapped
     if (targetPartida === "SENSE_CORRESPONDENCIA" && rowCompte) {
       const key = rowCompte;
@@ -449,8 +494,16 @@ export function parseA3Excel(
       unmappedAccountsTracker.get(key)!.count++;
     }
 
+    const descLiniaVal = colDescLinia !== -1 && row[colDescLinia] ? String(row[colDescLinia]).trim() : "";
+    const pisVal = colPis !== -1 && row[colPis] ? String(row[colPis]).trim() : "";
+    const senseFactura = !factura || factura === "0";
+    // ICF loan instalments: capital and interest of the same flat and concept in one line
+    const isIcf = senseFactura && /\bICF\b/i.test(descLiniaVal);
+
     let clave: string;
-    if (!factura || factura === "0" || factura === "") {
+    if (isIcf) {
+      clave = `ICF||${docA3}||${cleanStr(pisVal)}||${cleanStr(descLiniaVal)}||${targetPartida}`;
+    } else if (senseFactura) {
       clave = `SENSE_FRA_${r}`;
     } else if (isIkea) {
       clave = `${docA3}||${factura}||${targetPartida}`;
@@ -459,7 +512,6 @@ export function parseA3Excel(
     }
 
     const nifVal = colNif !== -1 && row[colNif] ? String(row[colNif]).trim() : "";
-    const descLiniaVal = colDescLinia !== -1 && row[colDescLinia] ? String(row[colDescLinia]).trim() : "";
     const baseVal = colBase !== -1 ? parseNum(row[colBase]) : 0;
     const ivaVal = colIva !== -1 ? parseNum(row[colIva]) : 0;
     const irpfVal = colIrpf !== -1 ? parseNum(row[colIrpf]) : 0;
@@ -477,6 +529,7 @@ export function parseA3Excel(
         sampleRow: row,
         docA3,
         apunte: apunteVal,
+        idHint: isIcf ? `ICF_${pisVal}` : "",
         factura,
         proveidor,
         cifList: new Set(),
@@ -493,7 +546,7 @@ export function parseA3Excel(
         descCompte: rowDescCompte,
         dataEmissio: colData !== -1 ? formatDate(row[colData]) : "",
         dataPagament: colDataPag !== -1 ? formatDate(row[colDataPag]) : "",
-        pis: colPis !== -1 && row[colPis] ? String(row[colPis]).trim() : "",
+        pis: pisVal,
         area: colArea !== -1 && row[colArea] ? String(row[colArea]).trim() : "",
         financador: colFin !== -1 && row[colFin] ? String(row[colFin]).trim() : "",
         projecteA3: colProj !== -1 && row[colProj] ? String(row[colProj]).trim() : "",
@@ -501,6 +554,11 @@ export function parseA3Excel(
     }
 
     const g = groups[clave];
+    // A grouped ICF instalment keeps the lowest account, as the justification macro does
+    if (isIcf && rowCompte && Number(rowCompte) < Number(g.compte)) {
+      g.compte = rowCompte;
+      g.descCompte = rowDescCompte;
+    }
     if (nifVal) g.cifList.add(nifVal);
     if (factura && factura !== "0") g.facturesList.add(factura);
     if (descLiniaVal) g.conceptesList.add(descLiniaVal);
@@ -552,7 +610,7 @@ export function parseA3Excel(
 
     // Stable ID. Lines without invoice number of the same document would collide:
     // the first keeps the historical ID and the following ones get a suffix.
-    const baseId = `${g.docA3}_${facturasStr}_${g.partidaId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const baseId = `${g.docA3}_${facturasStr || g.idHint}_${g.partidaId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
     let cleanId = baseId;
     for (let n = 2; usedIds.has(cleanId); n++) {
       cleanId = `${baseId}_${n}`;
@@ -603,6 +661,23 @@ export function parseA3Excel(
   // to the existing one of the same document when the match is unambiguous.
   const { orfes } = relinkExisting(resultDespeses, existingDespeses, usedIds);
 
+  // Existing despeses whose entry number is inside the file's range but are not in the file:
+  // probably deleted or renumbered in A3. Only reported, never changed automatically.
+  const finalIds = new Set(resultDespeses.map(d => d.id));
+  const orfesSet = new Set(orfes);
+  // Payroll imported by earlier versions (no equivalence): must not stay stored
+  const despesesPersonals = existingDespeses
+    .filter(e => !finalIds.has(e.id) && e.partida_id === "SENSE_CORRESPONDENCIA" && isPersonalAccount(e.compte_despesa))
+    .map(e => e.id);
+  const personalsSet = new Set(despesesPersonals);
+  const despesesDesaparegudes = existingDespeses
+    .filter(e => {
+      if (finalIds.has(e.id) || orfesSet.has(e.id) || personalsSet.has(e.id)) return false;
+      const n = Number(e.numapunte);
+      return isValidApunte(e.numapunte) && Number.isFinite(n) && n >= apuntMin && n <= apuntMax;
+    })
+    .map(e => e.id);
+
   // 3rd pass: compare with existing despeses
   for (const d of resultDespeses) {
     const existing = existingMap.get(d.id);
@@ -643,7 +718,16 @@ export function parseA3Excel(
     columnesDetectades,
     comptesSenseCorrespondencia,
     despesesOrfes: orfes,
+    despesesDesaparegudes,
+    despesesPersonals,
+    liniesPersonalExcloses,
+    fullsAfegits,
   };
+}
+
+/** Payroll accounts (640 salaries, 641 severance, 642 social security). */
+export function isPersonalAccount(compte: string): boolean {
+  return /^64[012]/.test(String(compte || "").replace(/[^0-9]/g, ""));
 }
 
 /** An entry number that identifies an A3 document (not empty, not 0, not a row fallback). */
