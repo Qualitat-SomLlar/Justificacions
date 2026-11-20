@@ -136,6 +136,68 @@ export function splitByExercici<T extends { any_fiscal: number; data_emissio: st
   return { kept, skipped };
 }
 
+/** Merge of some items into one shard document. */
+export interface ShardWrite {
+  bucket: string;
+  shard: number;
+  items: Record<string, unknown>;
+}
+
+export interface BatchLimits {
+  /** Documents per batch (Firestore: 500) */
+  maxDocs: number;
+  /** Items per batch: every field of an item in the map is an index entry */
+  maxItems: number;
+  /** Approximate bytes per batch (Firestore request limit: 10 MiB) */
+  maxBytes: number;
+}
+
+// An import of thousands of invoices in one batch is refused ("Transaction too big"): every
+// field of every item counts towards the transaction, not only the number of documents.
+export const DEFAULT_BATCH_LIMITS: BatchLimits = { maxDocs: 450, maxItems: 150, maxBytes: 1_000_000 };
+
+function approxSize(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? 16;
+  } catch {
+    return 16;
+  }
+}
+
+/**
+ * Splits shard merges into batches within the limits. A shard with many items is split across
+ * several batches (merges of different item keys of the same document don't interfere).
+ * Small changes still fit in a single, atomic batch.
+ */
+export function splitShardWrites(writes: ShardWrite[], limits: BatchLimits = DEFAULT_BATCH_LIMITS): ShardWrite[][] {
+  const batches: ShardWrite[][] = [];
+  let current = new Map<string, ShardWrite>();
+  let items = 0;
+  let bytes = 0;
+  const flush = () => {
+    if (current.size > 0) batches.push(Array.from(current.values()));
+    current = new Map();
+    items = 0;
+    bytes = 0;
+  };
+  for (const w of writes) {
+    const id = `${w.bucket}/${w.shard}`;
+    for (const [k, v] of Object.entries(w.items)) {
+      const size = k.length + approxSize(v);
+      const newDoc = !current.has(id);
+      if (items > 0 && (items + 1 > limits.maxItems || bytes + size > limits.maxBytes || (newDoc && current.size + 1 > limits.maxDocs))) {
+        flush();
+      }
+      if (!current.has(id)) current.set(id, { bucket: w.bucket, shard: w.shard, items: {} });
+      current.get(id)!.items[k] = v;
+      items++;
+      bytes += size;
+    }
+  }
+  flush();
+  return batches;
+}
+
 export function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
