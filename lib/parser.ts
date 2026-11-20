@@ -139,9 +139,11 @@ function detectColumns(headers: string[]) {
   const prov = find(["proveidor", "proveedor", "nomproveidor", "nomproveedor", "nombreproveedor", "raosocial", "razonsocial", "emisor", "tercero"]);
   const partidaDesti = find(["fulldesti", "fulladesti", "partidadesti", "partidapressupostaria", "partida", "desti", "destino"]);
   const factura = find(["numfactura", "nfactura", "nrofactura", "numfra", "factura", "fra"]);
-  const docA3 = find(["documenta3", "ndoca3", "ndoc", "numdoc", "documento", "asiento", "numapunte", "apunte"]);
-  // Only a fallback for docA3: may point to the same column
-  const apunte = find(["numapunte", "apunte"], false);
+  // The document number only: an exact "numapunte" header must never win over a partial
+  // "Nº document A3" match (exact matches are tried first across all terms).
+  const docA3 = find(["documenta3", "ndoca3", "ndoc", "numdoc", "documento"]);
+  // Entry number: stored as numapunte and used for the ID when a line has no document number
+  const apunte = find(["numapunte", "apunte", "asiento"], false);
   const fin = find(["financador", "financiador", "entitat", "entidad"]);
   const area = find(["area", "departament", "departamento", "seccion"]);
   const proj = find(["projecte", "proyecto"]);
@@ -359,6 +361,7 @@ export function parseA3Excel(
   interface GroupAcc {
     sampleRow: any[];
     docA3: string;
+    apunte: string;
     factura: string;
     proveidor: string;
     cifList: Set<string>;
@@ -394,9 +397,9 @@ export function parseA3Excel(
     }
     totalFilesLlegides++;
 
-    const docA3 = colDocA3 !== -1 && row[colDocA3]
-      ? String(row[colDocA3]).trim()
-      : (colApunte !== -1 && row[colApunte] ? String(row[colApunte]).trim() : `ROW_${r}`);
+    const apunteVal = colApunte !== -1 && row[colApunte] ? String(row[colApunte]).trim() : "";
+    const docVal = colDocA3 !== -1 && row[colDocA3] ? String(row[colDocA3]).trim() : "";
+    const docA3 = docVal || apunteVal || `ROW_${r}`;
 
     const factura = colFactura !== -1 && row[colFactura] ? String(row[colFactura]).trim() : "";
     const proveidor = colProv !== -1 && row[colProv] ? String(row[colProv]).trim() : "";
@@ -460,8 +463,12 @@ export function parseA3Excel(
     const baseVal = colBase !== -1 ? parseNum(row[colBase]) : 0;
     const ivaVal = colIva !== -1 ? parseNum(row[colIva]) : 0;
     const irpfVal = colIrpf !== -1 ? parseNum(row[colIrpf]) : 0;
+    // Cost total = base + IVA (gross, before withholding). A3's "Import total de línia" is
+    // already base + IVA - IRPF, so it is only used when the file has no base/IVA columns.
     // IRPF is subtracted once, later: total factura = cost total - IRPF
-    const costVal = colTotalLinia !== -1 ? parseNum(row[colTotalLinia]) : (baseVal + ivaVal);
+    const costVal = colBase !== -1 || colIva !== -1
+      ? baseVal + ivaVal
+      : (colTotalLinia !== -1 ? parseNum(row[colTotalLinia]) : 0);
     const docTotalVal = colTotalDocA3 !== -1 ? parseNum(row[colTotalDocA3]) : 0;
 
     if (!groups[clave]) {
@@ -469,6 +476,7 @@ export function parseA3Excel(
       groups[clave] = {
         sampleRow: row,
         docA3,
+        apunte: apunteVal,
         factura,
         proveidor,
         cifList: new Set(),
@@ -510,8 +518,6 @@ export function parseA3Excel(
   for (const d of existingDespeses) {
     existingMap.set(d.id, d);
   }
-
-  const docKey = (ndoc: string, factura: string) => `${ndoc}||${factura}`;
 
   let facturesNoves = 0;
   let facturesExistents = 0;
@@ -561,7 +567,7 @@ export function parseA3Excel(
 
     resultDespeses.push({
       id: cleanId,
-      numapunte: g.docA3,
+      numapunte: g.apunte || g.docA3,
       ndoc_a3: g.docA3,
       financador: g.financador,
       area: g.area,
@@ -590,29 +596,12 @@ export function parseA3Excel(
     });
   }
 
-  // 2nd pass: the ID contains the partida resolved at import time, so when an equivalence
-  // changes (e.g. SENSE_CORRESPONDENCIA -> DD_X) the same invoice gets a new ID. Relink it to
-  // the existing despesa when the match within the same document/invoice is unambiguous.
-  const matchedExistingIds = new Set(resultDespeses.filter(d => existingMap.has(d.id)).map(d => d.id));
-  const unmatchedExistingByDoc = new Map<string, Despesa[]>();
-  for (const d of existingDespeses) {
-    if (matchedExistingIds.has(d.id)) continue;
-    const k = docKey(d.ndoc_a3, d.factura);
-    unmatchedExistingByDoc.set(k, [...(unmatchedExistingByDoc.get(k) || []), d]);
-  }
-  const unmatchedParsedByDoc = new Map<string, Despesa[]>();
-  for (const d of resultDespeses) {
-    if (existingMap.has(d.id)) continue;
-    const k = docKey(d.ndoc_a3, d.factura);
-    unmatchedParsedByDoc.set(k, [...(unmatchedParsedByDoc.get(k) || []), d]);
-  }
-  for (const [k, parsedList] of unmatchedParsedByDoc.entries()) {
-    const existingList = unmatchedExistingByDoc.get(k);
-    if (parsedList.length === 1 && existingList && existingList.length === 1 && !usedIds.has(existingList[0].id)) {
-      parsedList[0].id = existingList[0].id;
-      usedIds.add(existingList[0].id);
-    }
-  }
+  // 2nd pass: the ID contains the invoice number and the partida resolved at import time, so
+  // the same A3 document gets a new ID when A3 corrects the invoice number, when an equivalence
+  // changes (e.g. SENSE_CORRESPONDENCIA -> DD_X) or when despeses were imported before the
+  // document number was read correctly (ndoc_a3 held the entry number). Relink each new despesa
+  // to the existing one of the same document when the match is unambiguous.
+  const { orfes } = relinkExisting(resultDespeses, existingDespeses, usedIds);
 
   // 3rd pass: compare with existing despeses
   for (const d of resultDespeses) {
@@ -653,5 +642,109 @@ export function parseA3Excel(
     fullUtilitzat: sheetName,
     columnesDetectades,
     comptesSenseCorrespondencia,
+    despesesOrfes: orfes,
   };
+}
+
+/** An entry number that identifies an A3 document (not empty, not 0, not a row fallback). */
+function isValidApunte(a: string | undefined): a is string {
+  return !!a && a !== "0" && !a.startsWith("ROW_");
+}
+
+/**
+ * Gives each new despesa without an ID match the ID of an existing despesa of the same A3
+ * document, so imputacions and manual changes are kept. Within a document, pairs are made by
+ * partida, then by invoice number, then 1-to-1 if a single despesa is left on each side.
+ * Existing despeses of a document present in this import that remain unpaired are returned as
+ * orphans: A3 no longer has them (the document was split differently or corrected).
+ */
+export function relinkExisting(
+  parsed: Despesa[],
+  existing: Despesa[],
+  usedIds: Set<string> = new Set(parsed.map(d => d.id))
+): { orfes: string[] } {
+  const existingIds = new Set(existing.map(d => d.id));
+  const matched = new Set(parsed.filter(d => existingIds.has(d.id)).map(d => d.id));
+
+  // A document is identified by its number and, when valid, by its entry number. Despeses
+  // imported before the fix stored the entry number in both ndoc_a3 and numapunte.
+  const docKeys = (d: Despesa): string[] => {
+    // A row-number fallback is not a document: the same row of another file is another line
+    const keys = d.ndoc_a3.startsWith("ROW_") ? [] : [`D:${d.ndoc_a3}`];
+    if (isValidApunte(d.numapunte)) keys.push(`A:${d.numapunte}`);
+    if (isValidApunte(d.ndoc_a3)) keys.push(`A:${d.ndoc_a3}`);
+    return keys;
+  };
+
+  const unmatchedExisting = existing.filter(d => !matched.has(d.id));
+  const existingByKey = new Map<string, Despesa[]>();
+  for (const d of unmatchedExisting) {
+    for (const k of docKeys(d)) existingByKey.set(k, [...(existingByKey.get(k) || []), d]);
+  }
+
+  // Unmatched parsed despeses grouped by document (ndoc_a3 is the grouping key of the parser)
+  const parsedByDoc = new Map<string, Despesa[]>();
+  for (const d of parsed) {
+    if (matched.has(d.id)) continue;
+    parsedByDoc.set(d.ndoc_a3, [...(parsedByDoc.get(d.ndoc_a3) || []), d]);
+  }
+
+  const taken = new Set<string>();
+  const link = (p: Despesa, e: Despesa) => {
+    if (usedIds.has(e.id)) return;
+    usedIds.delete(p.id);
+    p.id = e.id;
+    usedIds.add(e.id);
+    taken.add(e.id);
+  };
+  const pairBy = (ps: Despesa[], es: Despesa[], key: (d: Despesa) => string) => {
+    const count = (list: Despesa[]) => {
+      const m = new Map<string, number>();
+      list.forEach(d => m.set(key(d), (m.get(key(d)) || 0) + 1));
+      return m;
+    };
+    const pc = count(ps), ec = count(es);
+    for (const p of ps) {
+      const k = key(p);
+      if (pc.get(k) !== 1 || ec.get(k) !== 1) continue;
+      const e = es.find(x => key(x) === k)!;
+      link(p, e);
+    }
+  };
+
+  for (const ps of parsedByDoc.values()) {
+    const candidates = new Map<string, Despesa>();
+    for (const k of docKeys(ps[0])) {
+      for (const e of existingByKey.get(k) || []) candidates.set(e.id, e);
+    }
+    const free = () => Array.from(candidates.values()).filter(e => !taken.has(e.id));
+    const pending = () => ps.filter(p => !existingIds.has(p.id));
+    if (candidates.size === 0) continue;
+    pairBy(pending(), free(), d => d.partida_id);
+    pairBy(pending(), free(), d => d.factura);
+    const lp = pending(), le = free();
+    if (lp.length === 1 && le.length === 1) link(lp[0], le[0]);
+  }
+
+  // Despeses imported with a row-number ID (line without document or entry number, e.g. entry 0):
+  // they can only be recognised by invoice number and partida
+  const legacyKey = (d: Despesa) => `${d.factura}||${d.partida_id}`;
+  const isLegacy = (d: Despesa) => d.ndoc_a3.startsWith("ROW_");
+  pairBy(
+    parsed.filter(p => !existingIds.has(p.id) && p.factura),
+    unmatchedExisting.filter(e => isLegacy(e) && e.factura && !taken.has(e.id)),
+    legacyKey
+  );
+
+  // Orphans: existing despeses of a document that appears in this import and got no pair
+  const finalIds = new Set(parsed.map(d => d.id));
+  const importedKeys = new Set(parsed.flatMap(docKeys));
+  const importedLegacyKeys = new Set(parsed.filter(p => p.factura).map(legacyKey));
+  const orfes = unmatchedExisting
+    .filter(e => !finalIds.has(e.id) && (
+      docKeys(e).some(k => importedKeys.has(k)) ||
+      (isLegacy(e) && !!e.factura && importedLegacyKeys.has(legacyKey(e)))
+    ))
+    .map(e => e.id);
+  return { orfes };
 }

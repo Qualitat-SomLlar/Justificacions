@@ -497,6 +497,17 @@ export default function ImportModal({ onClose }: ImportModalProps) {
                 </div>
               )}
 
+              {(summary.orfesEliminades ?? 0) + (summary.orfesAmbImputacions ?? 0) > 0 && (
+                <div role="alert" className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <span>
+                    L'A3 ja no té algunes despeses de documents reimportats (factura corregida o document repartit d'una altra manera).
+                    {(summary.orfesEliminades ?? 0) > 0 && <> S'han eliminat <strong>{summary.orfesEliminades}</strong> que no tenien imputacions.</>}
+                    {(summary.orfesAmbImputacions ?? 0) > 0 && <> <strong>{summary.orfesAmbImputacions}</strong> tenen imputacions: s'han mantingut i marcat com a modificades a l'A3 perquè les reviseu.</>}
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-slate-500 font-semibold uppercase text-[10px]">Factures Noves</span>

@@ -5,7 +5,8 @@ Aplicatiu web per a la gestió, control i imputació econòmica de justificacion
 ## Funcionalitats principals
 
 - **Volcat directe d'A3:** importació i lectura intel·ligent del fitxer Excel exportat d'A3 (detecta el full, les columnes en català i castellà i la partida de cada línia).
-- **Unificació i consolidació:** agrupació de línies per document A3 i partida; una factura repartida en diverses partides es marca com a *compartida*. `Total factura = Cost total − IRPF`.
+- **Unificació i consolidació:** agrupació de línies per document A3 i partida; una factura repartida en diverses partides es marca com a *compartida*. `Cost total = Base + IVA` i `Total factura = Cost total − IRPF` (l'«Import total de línia» d'A3 ja porta l'IRPF descomptat, per això no s'utilitza com a cost total).
+- **Reimportacions estables:** cada despesa es reconeix pel número de document A3 (o pel número d'apunt quan no n'hi ha), encara que A3 hagi corregit el número de factura. Si un document reimportat ja no té alguna de les despeses anteriors, aquesta s'elimina quan no té imputacions; si en té, es manté marcada com a modificada a l'A3 perquè algú la revisi.
 - **Exercicis:** les despeses i les imputacions es guarden per exercici; el catàleg (projectes, partides, equivalències) és compartit. En importar només s'accepten les factures de l'exercici actiu.
 - **Mapeig de partides:** equivalències de comptes comptables a partides de despesa directa (`DD_...`).
 - **Imputació flexible:** repartiment per % i per import (€) a projectes, quadrat al cèntim. També en bloc sobre diverses factures.

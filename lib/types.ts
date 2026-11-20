@@ -76,6 +76,12 @@ export interface ImportSummary {
   fullUtilitzat?: string;
   columnesDetectades?: { camp: string; nomColumna: string; trobada: boolean }[];
   comptesSenseCorrespondencia?: { compte: string; descripcio: string; count: number }[];
+  /** IDs de despeses existents d'un document present a la importació que l'A3 ja no té (orfes) */
+  despesesOrfes?: string[];
+  /** Orfes eliminades (no tenien imputacions) */
+  orfesEliminades?: number;
+  /** Orfes que es mantenen perquè tenen imputacions: marcades com a modificades a l'A3 */
+  orfesAmbImputacions?: number;
 }
 
 export interface LogEntry {

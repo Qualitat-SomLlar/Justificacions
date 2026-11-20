@@ -724,9 +724,25 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       }
     }
 
+    // Orphans: despeses of a reimported document that A3 no longer has (corrected invoice or a
+    // different split by partida). Kept they would count twice: removed when nothing is imputed,
+    // otherwise kept and flagged so someone moves the imputation before deleting them.
+    const orfes = new Set(parsed.despesesOrfes || []);
+    const imputedIds = new Set(imputacions.map(imp => imp.despesa_id));
+    let orfesEliminades = 0;
+    let orfesAmbImputacions = 0;
     for (const remaining of existingMap.values()) {
-      updatedList.push(remaining);
+      if (!orfes.has(remaining.id)) {
+        updatedList.push(remaining);
+      } else if (imputedIds.has(remaining.id)) {
+        orfesAmbImputacions++;
+        updatedList.push({ ...remaining, modificat_a3: true });
+      } else {
+        orfesEliminades++;
+      }
     }
+    summary.orfesEliminades = orfesEliminades;
+    summary.orfesAmbImputacions = orfesAmbImputacions;
 
     // If A3 changed an invoice total, keep the percentages and recalculate the amounts
     const updatedImputacions = recalcImputacionsForTotals(imputacions, changedTotals, new Date().toISOString());
@@ -737,7 +753,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     recordLog(
       "importacio_a3",
       `Volcat d'Excel d'A3 Processat (exercici ${activeExercici})`,
-      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} ja existents (${summary.facturesModificades} amb canvis a l'A3, ${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.${altresExercicis > 0 ? ` Atenció: ${altresExercicis} factures tenen data d'un altre exercici i no s'han importat.` : ""}`
+      `S'han processat ${summary.totalFilesLlegides} línies d'apunts. ${summary.facturesNoves} factures noves, ${summary.facturesExistents} ja existents (${summary.facturesModificades} amb canvis a l'A3, ${changedTotals.size} amb el total canviat i els imports imputats recalculats) i ${summary.senseCorrespondencia} pendents de correspondència.${orfesEliminades > 0 ? ` S'han eliminat ${orfesEliminades} despeses sense imputacions que l'A3 ja no té (factura corregida o document repartit d'una altra manera).` : ""}${orfesAmbImputacions > 0 ? ` Atenció: ${orfesAmbImputacions} despeses que l'A3 ja no té tenen imputacions i s'han marcat com a modificades per revisar-les.` : ""}${altresExercicis > 0 ? ` Atenció: ${altresExercicis} factures tenen data d'un altre exercici i no s'han importat.` : ""}`
     );
 
     return summary;
