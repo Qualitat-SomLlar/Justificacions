@@ -2,13 +2,22 @@ rules_version = '2';
 
 // Draft: compare it with the rules currently published before replacing them
 // (Firebase Console > Firestore Database > Rules). It must allow the same accounts as
-// ALLOWED_DOMAINS / ALLOWED_EMAILS in lib/auth.tsx.
+// ALLOWED_DOMAINS / ALLOWED_EMAILS in lib/access.ts.
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Firebase marks the e-mail of Microsoft (Entra ID) accounts as not verified. They are
+    // accepted because the Azure app registration is single-tenant: only accounts of the
+    // organisation's directory can sign in with it (see README, "Inici de sessió amb Microsoft").
+    function hasTrustedEmail() {
+      return request.auth.token.email_verified == true
+        || request.auth.token.firebase.sign_in_provider == 'microsoft.com';
+    }
+
     function isAllowedUser() {
       return request.auth != null
-        && request.auth.token.email_verified == true
+        && request.auth.token.email != null
+        && hasTrustedEmail()
         && (
           request.auth.token.email.lower().matches('.*@(somllar[.]cat|prohabitatge[.]org)$')
           || request.auth.token.email.lower() in ['litofortuna@gmail.com', 'secretariadq@gmail.com']
