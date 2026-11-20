@@ -12,7 +12,9 @@ import {
   pickMigrationSource,
   shardOf,
   splitByExercici,
+  splitShardWrites,
   stableStringify,
+  ShardWrite,
 } from "@/lib/sync_utils";
 
 type Item = { id: string; a?: number; b?: string };
@@ -128,6 +130,51 @@ describe("splitByExercici", () => {
     const { kept, skipped } = splitByExercici(items, 2025);
     expect(kept.map(i => i.id)).toEqual(["b", "c", "d"]);
     expect(skipped.map(i => i.id)).toEqual(["a"]);
+  });
+});
+
+describe("splitShardWrites", () => {
+  const shardWithItems = (shard: number, n: number, size = 10): ShardWrite => ({
+    bucket: "despeses_2026",
+    shard,
+    items: Object.fromEntries(Array.from({ length: n }, (_, i) => [`s${shard}_${i}`, { id: `s${shard}_${i}`, text: "x".repeat(size) }])),
+  });
+  const countItems = (batches: ShardWrite[][]) => batches.flat().reduce((s, w) => s + Object.keys(w.items).length, 0);
+
+  it("keeps a small change in one atomic batch", () => {
+    const batches = splitShardWrites([shardWithItems(0, 3), shardWithItems(1, 2)]);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(2);
+  });
+
+  it("splits a large import (thousands of items in 32 shards) into batches within the limits", () => {
+    const writes = Array.from({ length: 32 }, (_, s) => shardWithItems(s, 130, 900));
+    const limits = { maxDocs: 450, maxItems: 150, maxBytes: 1_000_000 };
+    const batches = splitShardWrites(writes, limits);
+    expect(countItems(batches)).toBe(32 * 130);
+    for (const b of batches) {
+      const items = b.reduce((s, w) => s + Object.keys(w.items).length, 0);
+      const bytes = JSON.stringify(b.map(w => w.items)).length;
+      expect(items).toBeLessThanOrEqual(limits.maxItems);
+      expect(bytes).toBeLessThan(limits.maxBytes * 1.1);
+      expect(b.length).toBeLessThanOrEqual(limits.maxDocs);
+    }
+    // Every item lands once, in its own shard
+    const seen = new Set<string>();
+    for (const w of batches.flat()) for (const k of Object.keys(w.items)) {
+      expect(k.startsWith(`s${w.shard}_`)).toBe(true);
+      seen.add(k);
+    }
+    expect(seen.size).toBe(32 * 130);
+  });
+
+  it("respects the documents per batch", () => {
+    const batches = splitShardWrites(Array.from({ length: 5 }, (_, s) => shardWithItems(s, 1)), { maxDocs: 2, maxItems: 100, maxBytes: 1e6 });
+    expect(batches.map(b => b.length)).toEqual([2, 2, 1]);
+  });
+
+  it("returns no batch for no writes", () => {
+    expect(splitShardWrites([])).toEqual([]);
   });
 });
 

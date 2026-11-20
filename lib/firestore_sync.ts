@@ -11,7 +11,7 @@ import {
   Unsubscribe
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { chunk, FIELD_DELETED, ItemChanges, itemKey, shardOf } from "./sync_utils";
+import { chunk, FIELD_DELETED, ItemChanges, itemKey, shardOf, ShardWrite, splitShardWrites } from "./sync_utils";
 
 /**
  * Layout (schema v3): each list is split in a fixed number of shard documents and every item is
@@ -32,9 +32,6 @@ import { chunk, FIELD_DELETED, ItemChanges, itemKey, shardOf } from "./sync_util
 const COLLECTION_ROOT = "justificacions_somllar";
 const META_DOC = "_meta";
 export const SCHEMA_VERSION = 3;
-
-// Firestore allows up to 500 writes per batch
-const MAX_BATCH_WRITES = 450;
 
 export type Bucket = string;
 
@@ -144,11 +141,13 @@ export interface BucketChanges<T = any> {
 }
 
 /**
- * Writes the changes of one user action. Everything goes in a single atomic batch (one merge per
- * touched shard), so an action is never left half written.
+ * Writes the changes of one user action as merges of the touched shards. Usual actions fit in a
+ * single atomic batch; large ones (an A3 import of thousands of invoices) are split into several
+ * batches written in order, because Firestore refuses a transaction that big. If one of them
+ * fails, importing the same file again completes it (imports are idempotent).
  */
 export async function writeChanges(list: BucketChanges[]): Promise<void> {
-  const writes = new Map<string, { bucket: Bucket; shard: number; items: Record<string, unknown> }>();
+  const writes = new Map<string, ShardWrite>();
   const target = (bucket: Bucket, rawKey: string) => {
     const shard = shardOf(rawKey, shardsFor(bucket));
     const id = `${bucket}/${shard}`;
@@ -170,7 +169,7 @@ export async function writeChanges(list: BucketChanges[]): Promise<void> {
     }
   }
 
-  for (const part of chunk(Array.from(writes.values()), MAX_BATCH_WRITES)) {
+  for (const part of splitShardWrites(Array.from(writes.values()))) {
     const batch = writeBatch(db);
     for (const w of part) {
       batch.set(shardRef(w.bucket, w.shard), { items: w.items }, { merge: true });
