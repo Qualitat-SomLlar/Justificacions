@@ -828,6 +828,8 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     const to = new Map(aliases.map(a => [a.from, a.to]));
     const total = aliases.reduce((s, a) => s + a.despeses, 0);
     commit({ despeses: despeses.map(d => (to.has(d.partida_id) ? { ...d, partida_id: to.get(d.partida_id)! } : d)) });
+    // Read-only or a pending change: nothing was saved
+    if (refusedRef.current) return 0;
     recordLog(
       "partida",
       `Partides unificades (${total} factures)`,
