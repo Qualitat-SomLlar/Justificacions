@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Partida } from "@/lib/types";
+import { findPartidaAliases } from "@/lib/partides";
 
 type SortField = "codi" | "nom" | "facturesCount" | "totalImport" | "activa";
 type SortOrder = "asc" | "desc";
@@ -32,9 +33,21 @@ export default function PartidesPage() {
     partides, 
     despeses, 
     addPartida, 
-    updatePartida, 
-    toggleBaixaPartida 
+    updatePartida,
+    toggleBaixaPartida,
+    unificarPartides
   } = useJustificacions();
+
+  // Codis fora del catàleg que són una partida del catàleg escrita d'una altra manera
+  // (p. ex. «DD_PROFESS ADMC I GESTIO» de la columna «Full destí» d'A3)
+  const partidaAliases = useMemo(() => findPartidaAliases(despeses, partides), [despeses, partides]);
+
+  const handleUnificar = () => {
+    const detall = partidaAliases.map(a => `• ${a.from} → ${a.to} (${a.despeses} factures)`).join("\n");
+    if (!window.confirm(`Es mouran aquestes factures a la partida del catàleg:\n\n${detall}\n\nLes imputacions no canvien. Vols continuar?`)) return;
+    const n = unificarPartides();
+    if (n > 0) alert(`${n} factures unificades. Queda registrat a l'historial.`);
+  };
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterEstat, setFilterEstat] = useState<"totes" | "actives" | "baixa">("totes");
@@ -587,6 +600,17 @@ export default function PartidesPage() {
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right whitespace-nowrap">
+                    {partidaAliases.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleUnificar}
+                        title={partidaAliases.map(a => `${a.from} → ${a.to}`).join("\n")}
+                        className="inline-flex items-center space-x-1 mr-3 px-2 py-1 rounded-md text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700"
+                      >
+                        <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                        <span>Unificar {partidaAliases.reduce((s, a) => s + a.despeses, 0)} factures</span>
+                      </button>
+                    )}
                     <Link
                       href="/matriu"
                       className="inline-flex items-center space-x-1 text-xs font-semibold text-rose-700 hover:underline"

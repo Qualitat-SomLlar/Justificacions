@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
-import { Despesa, Equivalencia, ImportSummary } from "./types";
+import { Despesa, Equivalencia, ImportSummary, Partida } from "./types";
+import { canonicalPartidaId } from "./partides";
 
 export function cleanStr(s: any): string {
   if (s === null || s === undefined) return "";
@@ -297,7 +298,9 @@ export function parseA3Excel(
   existingDespeses: Despesa[] = [],
   preferredSheetName?: string,
   /** Other sheets with the same columns whose lines are added (e.g. "Negatius": credit notes) */
-  extraSheetNames: string[] = []
+  extraSheetNames: string[] = [],
+  /** Catalog partides: a code read from the file is stored with the catalog's spelling */
+  partides: Pick<Partida, "id">[] = []
 ): ImportSummary {
   const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: false });
 
@@ -471,6 +474,10 @@ export function parseA3Excel(
         targetPartida = rowDescCompte.toUpperCase().trim();
       }
     }
+
+    // "DD_PROFESS ADMC I GESTIO" (uppercased above) is the catalog's "DD_PROFESS ADMC i GESTIO":
+    // a different spelling would create a second partida
+    targetPartida = canonicalPartidaId(targetPartida, partides);
 
     // Payroll (salaries, severance, social security) without an equivalence is never stored:
     // its lines carry personal data and are justified outside this tool
