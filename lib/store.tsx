@@ -6,6 +6,7 @@ import { parseA3Excel, cleanStr } from "./parser";
 import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
 import { buildBulkImputacions, buildImputacions, recalcImputacionsForTotals, round2 } from "./imputacions";
+import { canonicalPartidaId, findPartidaAliases } from "./partides";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth";
 import {
@@ -81,6 +82,8 @@ interface JustificacionsContextType {
     comentariGlobal?: string
   ) => void;
   bulkAssignPartida: (despesaIds: string[], partidaId: string, comentaris?: string) => void;
+  /** Moves the despeses whose partida is a catalog partida written another way to the catalog one */
+  unificarPartides: () => number;
   bulkImputar: (despesaIds: string[], allocations: { projecte_id: string; percentatge: number }[], comentaris?: string) => void;
   bulkResetImputacions: (despesaIds: string[], comentaris?: string) => void;
   bulkDeleteDespeses: (despesaIds: string[], comentaris?: string) => void;
@@ -684,7 +687,12 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
           : "No hi ha connexió amb el núvol: no es pot importar fins que es resolgui."
       );
     }
-    const parsed = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet, extraSheets);
+    // Stored despeses with a misspelt partida are matched with the catalog spelling the parser now uses
+    const existingCanonical = despeses.map(d => {
+      const partida_id = canonicalPartidaId(d.partida_id, partides);
+      return partida_id === d.partida_id ? d : { ...d, partida_id };
+    });
+    const parsed = parseA3Excel(fileBuffer, equivalencies, existingCanonical, preferredSheet, extraSheets, partides);
 
     // Only invoices of the active exercici are imported: the others would end up in this
     // exercici's bucket (and be duplicated when imported again under their own exercici)
@@ -714,7 +722,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         updatedList.push({
           ...d,
           // A partida assigned manually (or by account mapping) wins over the one resolved from A3
-          partida_id: prev.partida_id && prev.partida_id !== "SENSE_CORRESPONDENCIA" ? prev.partida_id : d.partida_id,
+          partida_id: prev.partida_id && prev.partida_id !== "SENSE_CORRESPONDENCIA" ? canonicalPartidaId(prev.partida_id, partides) : d.partida_id,
           // The A3 change warning stays until someone reviews the imputation
           modificat_a3: Boolean(prev.modificat_a3 || d.modificat_a3),
         });
@@ -812,6 +820,20 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       `S'ha assignat la partida ${partidaId} a ${despesaIds.length} factures seleccionades.`,
       { comentaris }
     );
+  };
+
+  const unificarPartides = (): number => {
+    const aliases = findPartidaAliases(despeses, partides);
+    if (aliases.length === 0) return 0;
+    const to = new Map(aliases.map(a => [a.from, a.to]));
+    const total = aliases.reduce((s, a) => s + a.despeses, 0);
+    commit({ despeses: despeses.map(d => (to.has(d.partida_id) ? { ...d, partida_id: to.get(d.partida_id)! } : d)) });
+    recordLog(
+      "partida",
+      `Partides unificades (${total} factures)`,
+      aliases.map(a => `${a.from} → ${a.to}: ${a.despeses} factures`).join("; ")
+    );
+    return total;
   };
 
   const bulkImputar = (
@@ -1146,6 +1168,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         deleteEquivalencia,
         assignPartidaToCompte,
         bulkAssignPartida,
+        unificarPartides,
         bulkImputar,
         bulkResetImputacions,
         bulkDeleteDespeses,
