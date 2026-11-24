@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { Plus, Search, Calendar, Edit, Archive, ArchiveRestore, X, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Search, Calendar, Edit, Archive, ArchiveRestore, X, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Projecte } from "@/lib/types";
+import { centreCost } from "@/lib/projectes_sync";
+import SyncProjectesModal from "@/components/SyncProjectesModal";
 
 type SortField = "codi" | "financador" | "area" | "dates_text" | "impsCount" | "actiu";
 type SortOrder = "asc" | "desc";
@@ -16,6 +18,7 @@ export default function ProjectesPage() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSyncOpen, setIsSyncOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Projecte | null>(null);
 
   // Sorting state
@@ -116,8 +119,9 @@ export default function ProjectesPage() {
         setFormError("El codi del projecte és obligatori.");
         return;
       }
-      if (projectes.some(item => item.id === id || item.codi.toUpperCase() === id)) {
-        setFormError(`Ja existeix un projecte amb el codi ${id}. Tria un altre codi.`);
+      const cc = centreCost({ financador: financador.trim().toUpperCase(), area: area.trim().toUpperCase(), codi: id }).toUpperCase();
+      if (projectes.some(item => centreCost(item).toUpperCase() === cc)) {
+        setFormError(`Ja existeix el projecte ${cc} (mateix finançador, àrea i codi).`);
         return;
       }
       const ok = addProjecte({
@@ -199,14 +203,24 @@ export default function ProjectesPage() {
           </p>
         </div>
 
-        <button
-          onClick={openAddModal}
-          className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm shadow-sm transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nou Projecte</span>
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setIsSyncOpen(true)}
+            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl border border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-medium text-sm transition-all"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Actualitzar des de l&apos;Excel</span>
+          </button>
+          <button
+            onClick={openAddModal}
+            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm shadow-sm transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nou Projecte</span>
+          </button>
+        </div>
       </div>
+      {isSyncOpen && <SyncProjectesModal onClose={() => setIsSyncOpen(false)} />}
 
       {/* Search and stats bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
