@@ -1,5 +1,5 @@
 import { Imputacio } from "./types";
-import { percentCents } from "./sync_utils";
+import { importImputable, percentCents } from "./sync_utils";
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 export const round4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -20,10 +20,11 @@ export interface AllocationInput {
  * Imputacions of one despesa from the rows of the modal. One imputacio per project (the ID is
  * despesa_projecte): repeated rows are merged and empty rows dropped. At exactly 100% the last
  * amount takes the remainder, so the amounts add up to the invoice to the cent (50% + 50% of 10,01 €).
+ * `totalImputable` is the cost total of the invoice (base + IVA, see importImputable).
  */
 export function buildImputacions(
   despesaId: string,
-  totalFactura: number | undefined,
+  totalImputable: number | undefined,
   allocations: AllocationInput[],
   meta: ImputacioMeta
 ): Imputacio[] {
@@ -45,10 +46,10 @@ export function buildImputacions(
   const result = Array.from(byProject.values());
 
   const totalPercent = round2(result.reduce((acc, curr) => acc + curr.percentatge, 0));
-  if (totalFactura !== undefined && result.length > 0 && percentCents(totalPercent) === 10000) {
+  if (totalImputable !== undefined && result.length > 0 && percentCents(totalPercent) === 10000) {
     const last = result[result.length - 1];
     const others = result.slice(0, -1).reduce((acc, i) => acc + i.import, 0);
-    last.import = round2(totalFactura - others);
+    last.import = round2(totalImputable - others);
   }
   return result;
 }
@@ -58,7 +59,7 @@ export function buildImputacions(
  * the last project of each invoice takes the remainder.
  */
 export function buildBulkImputacions(
-  despeses: { id: string; total_factura: number }[],
+  despeses: { id: string; cost_total: number }[],
   allocations: { projecte_id: string; percentatge: number }[],
   observacions: string,
   meta: ImputacioMeta
@@ -75,11 +76,12 @@ export function buildBulkImputacions(
   const imputacions: Imputacio[] = [];
   for (const d of despeses) {
     let totalImport = 0;
+    const base = importImputable(d);
     validAllocations.forEach((alloc, i) => {
       const isLast = i === validAllocations.length - 1;
       const importAlloc = isLast && closesInvoice
-        ? round2(d.total_factura - totalImport)
-        : round2((alloc.percentatge / 100) * d.total_factura);
+        ? round2(base - totalImport)
+        : round2((alloc.percentatge / 100) * base);
       totalImport += importAlloc;
       imputacions.push({
         id: `${d.id}_${alloc.projecte_id}`,
@@ -97,7 +99,7 @@ export function buildBulkImputacions(
 }
 
 /**
- * When A3 changes the total of an invoice the percentages are kept and the amounts recalculated;
+ * When A3 changes the cost total of an invoice the percentages are kept and the amounts recalculated;
  * invoices imputed at exactly 100% keep adding up to the new total to the cent.
  * Returns undefined when nothing needs to change.
  */

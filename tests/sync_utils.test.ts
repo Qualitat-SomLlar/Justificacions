@@ -95,14 +95,18 @@ describe("percent and estat", () => {
 
 describe("disponibleOf", () => {
   it("returns the amount still to justify", () => {
-    expect(disponibleOf({ total_factura: 100, import_total: 40 })).toBe(60);
+    expect(disponibleOf({ cost_total: 100, import_total: 40 })).toBe(60);
+  });
+  it("is measured on the cost total (base + IVA): the IRPF withheld is also to justify", () => {
+    // Total factura 85 (100 - 15 IRPF): imputing 85 still leaves the 15 of IRPF
+    expect(disponibleOf({ cost_total: 100, import_total: 85 })).toBe(15);
   });
   it("does not let an excess offset other invoices", () => {
-    expect(disponibleOf({ total_factura: 100, import_total: 130 })).toBe(0);
+    expect(disponibleOf({ cost_total: 100, import_total: 130 })).toBe(0);
   });
   it("keeps the sign of credit notes", () => {
-    expect(disponibleOf({ total_factura: -100, import_total: -30 })).toBe(-70);
-    expect(disponibleOf({ total_factura: -100, import_total: -130 })).toBe(0);
+    expect(disponibleOf({ cost_total: -100, import_total: -30 })).toBe(-70);
+    expect(disponibleOf({ cost_total: -100, import_total: -130 })).toBe(0);
   });
 });
 

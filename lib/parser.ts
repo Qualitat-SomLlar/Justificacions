@@ -708,6 +708,7 @@ export function parseA3Excel(
       // Check if amounts changed in A3
       if (
         Math.abs(existing.total_factura - d.total_factura) > 0.01 ||
+        Math.abs(existing.cost_total - d.cost_total) > 0.01 ||
         Math.abs(existing.base_imposable - d.base_imposable) > 0.01
       ) {
         d.modificat_a3 = true;

@@ -30,7 +30,8 @@ import {
   hasChanges,
   percentCents,
   pickMigrationSource,
-  splitByExercici
+  splitByExercici,
+  importImputable
 } from "./sync_utils";
 
 /**
@@ -719,8 +720,9 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     for (const d of summary.despeses) {
       const prev = existingMap.get(d.id);
       if (prev) {
-        if (Math.abs(prev.total_factura - d.total_factura) > 0.005) {
-          changedTotals.set(d.id, d.total_factura);
+        // Imputations are amounts of the cost total: recalculate them when it changes
+        if (Math.abs(importImputable(prev) - importImputable(d)) > 0.005) {
+          changedTotals.set(d.id, importImputable(d));
         }
         updatedList.push({
           ...d,
@@ -790,7 +792,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   ) => {
     const currentDespesa = despeses.find(d => d.id === despesaId);
     const otherImputacions = imputacions.filter(imp => imp.despesa_id !== despesaId);
-    const newImps = buildImputacions(despesaId, currentDespesa?.total_factura, allocations, {
+    const newImps = buildImputacions(despesaId, currentDespesa ? importImputable(currentDespesa) : undefined, allocations, {
       now: new Date().toISOString(),
       usuari: currentUserEmail(),
     });
@@ -806,7 +808,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     recordLog(
       "imputacio",
       `Imputació de Factura: ${currentDespesa?.ndoc_a3 || despesaId}`,
-      `Proveïdor: ${currentDespesa?.proveidor || "-"} | Total factura: ${currentDespesa ? currentDespesa.total_factura.toFixed(2) : "-"}€ | Repartiment: ${allocSummary}`,
+      `Proveïdor: ${currentDespesa?.proveidor || "-"} | Cost total: ${currentDespesa ? importImputable(currentDespesa).toFixed(2) : "-"}€ | Repartiment: ${allocSummary}`,
       { despesa_id: despesaId, comentaris: comentariGlobal }
     );
   };
