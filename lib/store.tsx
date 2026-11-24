@@ -7,6 +7,7 @@ import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
 import { buildBulkImputacions, buildImputacions, recalcImputacionsForTotals, round2 } from "./imputacions";
 import { canonicalPartidaId, findPartidaAliases } from "./partides";
+import { centreCost, ExcelProjecte, newProjecteId, SyncFila } from "./projectes_sync";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth";
 import {
@@ -91,6 +92,8 @@ interface JustificacionsContextType {
   updateProjecte: (p: Projecte) => void;
   deleteProjecte: (id: string) => void;
   setProjecteActiu: (id: string, actiu: boolean) => void;
+  /** Updates/creates projects so the catalog follows the justification Excel */
+  sincronitzarProjectes: (files: Pick<SyncFila, "excel" | "accio" | "projecteId">[]) => { actualitzats: number; creats: number };
   addPartida: (p: { codi: string; nom: string }, comentaris?: string) => boolean;
   updatePartida: (p: Partida, comentaris?: string) => void;
   /** `activa`: the state the user asked for (instead of toggling a possibly stale one) */
@@ -945,16 +948,20 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   // Projects CRUD
   const addProjecte = (p: Omit<Projecte, "id">): boolean => {
-    const id = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
-    if (!id) {
+    const codi = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
+    if (!codi) {
       alert("El codi del projecte és obligatori.");
       return false;
     }
-    if (projectes.some(item => item.id === id || item.codi.toUpperCase() === id)) {
-      alert(`Ja existeix un projecte amb el codi ${id}.`);
+    // A project is its centre de cost: the same code can exist for different funders
+    // (e.g. IFEGEN/GEN/WIP26 and AJSBDLL/GEN/WIP26)
+    const cc = centreCost({ ...p, codi }).toUpperCase();
+    if (projectes.some(item => centreCost(item).toUpperCase() === cc)) {
+      alert(`Ja existeix el projecte ${centreCost({ ...p, codi })}.`);
       return false;
     }
-    commit({ projectes: [...projectes, { ...p, id, codi: id, actiu: true }] });
+    const id = newProjecteId({ ...p, codi }, new Set(projectes.map(item => item.id)));
+    commit({ projectes: [...projectes, { ...p, id, codi, actiu: true }] });
 
     recordLog(
       "projecte",
@@ -976,6 +983,44 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       `Finançador: ${p.financador || "-"} | Àrea: ${p.area || "-"} | Dates: ${p.dates_text}`,
       { projecte_id: p.id }
     );
+  };
+
+  /**
+   * Brings the project catalog in line with the justification Excel: updates the paired projects
+   * (their ID does not change, so imputations stay with them) and creates the missing ones.
+   */
+  const sincronitzarProjectes = (files: Pick<SyncFila, "excel" | "accio" | "projecteId">[]): { actualitzats: number; creats: number } => {
+    const usedIds = new Set(projectes.map(p => p.id));
+    const updates = new Map<string, ExcelProjecte>();
+    const nous: Projecte[] = [];
+    for (const f of files) {
+      if (f.accio === "actualitzar" && f.projecteId) updates.set(f.projecteId, f.excel);
+      if (f.accio === "crear") {
+        const id = newProjecteId(f.excel, usedIds);
+        usedIds.add(id);
+        nous.push({ id, codi: f.excel.codi, nom: f.excel.nom, financador: f.excel.financador, area: f.excel.area, dates_text: f.excel.dates_text, actiu: true });
+      }
+    }
+    if (updates.size === 0 && nous.length === 0) return { actualitzats: 0, creats: 0 };
+    const updated = projectes.map(p => {
+      const e = updates.get(p.id);
+      if (!e) return p;
+      return { ...p, codi: e.codi, nom: e.nom || p.nom, financador: e.financador, area: e.area, dates_text: e.dates_text || p.dates_text, actiu: true };
+    });
+    commit({ projectes: [...updated, ...nous] });
+    if (refusedRef.current) return { actualitzats: 0, creats: 0 };
+    recordLog(
+      "projecte",
+      `Catàleg de projectes actualitzat des de l'Excel (${updates.size} actualitzats, ${nous.length} nous)`,
+      [
+        ...Array.from(updates.entries()).map(([id, e]) => {
+          const before = projectes.find(p => p.id === id)!;
+          return `${centreCost(before)} → ${e.cc}`;
+        }),
+        ...nous.map(p => `Nou: ${centreCost(p)}`),
+      ].join("; ")
+    );
+    return { actualitzats: updates.size, creats: nous.length };
   };
 
   const setProjecteActiu = (id: string, actiu: boolean) => {
@@ -1162,6 +1207,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         updateProjecte,
         deleteProjecte,
         setProjecteActiu,
+        sincronitzarProjectes,
         addPartida,
         updatePartida,
         toggleBaixaPartida,
