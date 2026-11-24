@@ -110,12 +110,22 @@ export function estatFromPercent(totalPercent: number): Despesa["estat"] {
 }
 
 /**
+ * Amount of an invoice that is imputed to projects: the cost total (base + IVA). The IRPF
+ * withheld is part of the cost the entity bears, so it is not subtracted (the total factura,
+ * base + IVA - IRPF, is only what the supplier is paid).
+ */
+export function importImputable(d: { cost_total: number }): number {
+  return d.cost_total || 0;
+}
+
+/**
  * Amount of an invoice still to justify, the same in every screen and in the Excel export.
  * Excesses don't offset other invoices; credit notes (negative totals) keep their sign.
  */
-export function disponibleOf(d: { total_factura: number; import_total: number }): number {
-  const rest = (d.total_factura || 0) - (d.import_total || 0);
-  return d.total_factura >= 0 ? Math.max(0, rest) : Math.min(0, rest);
+export function disponibleOf(d: { cost_total: number; import_total: number }): number {
+  const base = importImputable(d);
+  const rest = base - (d.import_total || 0);
+  return base >= 0 ? Math.max(0, rest) : Math.min(0, rest);
 }
 
 /**

@@ -142,7 +142,7 @@ export function exportJustificacionsExcel(
       Math.round(partDisp * 100) / 100,
       excedides > 0
         ? `ALERTA: ${excedides} factures >100%`
-        : partFact !== 0 && cents(partDisp) === 0 ? "Completat 100%" : "En curs"
+        : partCost !== 0 && cents(partDisp) === 0 ? "Completat 100%" : "En curs"
     ]);
   }
 

@@ -90,8 +90,8 @@ describe("buildImputacions", () => {
 
 describe("buildBulkImputacions", () => {
   const despeses = [
-    { id: "A", total_factura: 10.01 },
-    { id: "B", total_factura: 200 },
+    { id: "A", cost_total: 10.01 },
+    { id: "B", cost_total: 200 },
   ];
 
   it("closes every invoice to the cent at 100%", () => {
@@ -108,7 +108,7 @@ describe("buildBulkImputacions", () => {
     expect(imputacions).toHaveLength(6);
     for (const d of despeses) {
       const imps = imputacions.filter(i => i.despesa_id === d.id);
-      expect(cents(sumImport(imps))).toBe(cents(d.total_factura));
+      expect(cents(sumImport(imps))).toBe(cents(d.cost_total));
     }
     expect(imputacions[0].observacions).toBe("obs");
   });
@@ -133,6 +133,14 @@ describe("buildBulkImputacions", () => {
     expect(validAllocations).toEqual([{ projecte_id: "P1", percentatge: 100 }]);
     expect(imputacions).toHaveLength(2);
     expect(imputacions.every(i => i.percentatge === 100)).toBe(true);
+  });
+
+  it("imputes the cost total (base + IVA), IRPF included", () => {
+    // Base 3.824,70 + IVA 803,19 - IRPF 573,71: total factura 4.054,18, cost total 4.627,89
+    const despesa = { id: "IRPF", cost_total: 4627.89, total_factura: 4054.18 };
+    const { imputacions } = buildBulkImputacions([despesa], [{ projecte_id: "P1", percentatge: 60 }, { projecte_id: "P2", percentatge: 40 }], "", meta);
+    expect(cents(sumImport(imputacions))).toBe(cents(4627.89));
+    expect(imputacions[0].import).toBe(2776.73);
   });
 
   it("produces nothing when there are no valid allocations", () => {
