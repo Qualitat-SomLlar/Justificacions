@@ -403,6 +403,8 @@ export function parseA3Excel(
     costTotal: number;
     totalDocA3: number;
     partidaId: string;
+    /** ICF: account whose equivalence gave the partida */
+    icfPartidaCompte?: string;
     partidesVistes: Set<string>;
     compte: string;
     descCompte: string;
@@ -509,7 +511,10 @@ export function parseA3Excel(
 
     let clave: string;
     if (isIcf) {
-      clave = `ICF||${docA3}||${cleanStr(pisVal)}||${cleanStr(descLiniaVal)}||${targetPartida}`;
+      // One despesa per document and flat: capital (520…) and interest (662…) are merged even
+      // when one of the two accounts has no equivalence or the descriptions differ slightly.
+      // The partida is resolved below from the accounts that do have one.
+      clave = `ICF||${docA3}||${cleanStr(pisVal)}`;
     } else if (senseFactura) {
       clave = `SENSE_FRA_${r}`;
     } else if (isIkea) {
@@ -561,10 +566,20 @@ export function parseA3Excel(
     }
 
     const g = groups[clave];
-    // A grouped ICF instalment keeps the lowest account, as the justification macro does
-    if (isIcf && rowCompte && Number(rowCompte) < Number(g.compte)) {
-      g.compte = rowCompte;
-      g.descCompte = rowDescCompte;
+    if (isIcf) {
+      // Partida: the one of the lowest account that has an equivalence (an unmapped capital
+      // account does not leave the instalment without partida)
+      const mapped = targetPartida !== "SENSE_CORRESPONDENCIA";
+      const groupMapped = g.partidaId !== "SENSE_CORRESPONDENCIA";
+      if (mapped && (!groupMapped || Number(rowCompte) < Number(g.icfPartidaCompte ?? Infinity))) {
+        g.partidaId = targetPartida;
+        g.icfPartidaCompte = rowCompte;
+      }
+      // A grouped ICF instalment keeps the lowest account, as the justification macro does
+      if (rowCompte && Number(rowCompte) < Number(g.compte)) {
+        g.compte = rowCompte;
+        g.descCompte = rowDescCompte;
+      }
     }
     if (nifVal) g.cifList.add(nifVal);
     if (factura && factura !== "0") g.facturesList.add(factura);
