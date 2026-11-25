@@ -81,70 +81,30 @@ export default function Navbar() {
   return (
     <>
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm w-full">
+        {/* Row 1: brand and actions. Wraps (actions below the brand) when the screen is narrow */}
         <div className="w-full max-w-[1660px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between min-h-[70px] py-2 gap-3 lg:gap-4">
-            
+          <div className="flex flex-wrap items-center justify-between min-h-[64px] py-2 gap-x-4 gap-y-2">
+
             {/* Logo & Brand */}
-            <div className="flex items-center space-x-3 flex-shrink-0">
+            <div className="flex items-center space-x-3 min-w-0">
               <div className="h-10 w-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-inner flex-shrink-0">
                 SL
               </div>
-              <div className="flex-shrink-0">
+              <div className="min-w-0">
                 <div className="flex items-center space-x-2">
                   <span className="font-bold text-slate-900 text-base tracking-tight whitespace-nowrap">Som Llar</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium whitespace-nowrap">Justificacions</span>
                 </div>
-                <p className="text-xs text-slate-500 hidden sm:block whitespace-nowrap">Control de Subvencions i Licitacions</p>
+                <p className="text-xs text-slate-500 hidden md:block truncate">Control de Subvencions i Licitacions</p>
               </div>
             </div>
 
-            {/* Navigation links */}
-            {/* With 8 sections the inline menu needs ~1900 px; below that the second row (scrollable) is used */}
-            <nav className="hidden min-[1900px]:flex items-center space-x-1 flex-shrink-0">
-              {navItems.map(item => {
-                const Icon = item.icon;
-                const isActive = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center space-x-1.5 px-2.5 xl:px-3 py-2 rounded-lg text-xs xl:text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${
-                      isActive
-                        ? "bg-emerald-50 text-emerald-700 font-semibold shadow-xs"
-                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 flex-shrink-0" />
-                    <span className="whitespace-nowrap">{item.label}</span>
-                    {item.badge !== null && item.badge !== undefined && (
-                      <span
-                        className={`ml-1 px-1.5 py-0.5 text-[11px] font-semibold rounded-full flex-shrink-0 ${item.badgeColor}`}
-                        title={item.badgeTitle}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
-                    {item.href === "/despeses" && alertCount > 0 && (
-                      <span
-                        className="ml-0.5 px-1.5 py-0.5 text-[11px] font-semibold rounded-full flex-shrink-0 bg-rose-100 text-rose-800 inline-flex items-center"
-                        title={`${alertCount} despeses amb alertes (excedides o modificades a l'A3)`}
-                        aria-label={`${alertCount} alertes`}
-                      >
-                        <AlertTriangle className="w-3 h-3 mr-0.5" />
-                        {alertCount}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
-
             {/* Action buttons & Exercici */}
-            <div className="flex items-center space-x-2 xl:space-x-3 flex-shrink-0">
+            <div className="flex flex-wrap items-center justify-end gap-2 xl:gap-3 min-w-0">
               {/* Exercici selector */}
               <div className="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700">
                 <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                <span>Exercici:</span>
+                <span className="hidden sm:inline">Exercici:</span>
                 <select 
                   value={activeExercici} 
                   onChange={(e) => setActiveExercici(Number(e.target.value))}
@@ -181,12 +141,12 @@ export default function Navbar() {
 
               {/* User profile & Logout */}
               {user && (
-                <div className="flex items-center space-x-2 pl-2 sm:pl-3 border-l border-slate-200">
-                  <div className="hidden md:flex flex-col text-right">
-                    <span className="text-xs font-bold text-slate-800 leading-tight">
+                <div className="flex items-center space-x-2 pl-2 sm:pl-3 border-l border-slate-200 min-w-0">
+                  <div className="hidden lg:flex flex-col text-right min-w-0 max-w-[16rem]">
+                    <span className="text-xs font-bold text-slate-800 leading-tight truncate">
                       {user.displayName || user.email?.split("@")[0]}
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">
+                    <span className="text-[10px] text-slate-500 font-mono truncate" title={user.email || undefined}>
                       {user.email}
                     </span>
                   </div>
@@ -204,33 +164,46 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* Mobile / Tablet navigation row */}
-        <div className="min-[1900px]:hidden border-t border-slate-200 px-4 py-2 flex items-center justify-start overflow-x-auto space-x-2 bg-slate-50">
-          {navItems.map(item => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap ${
-                  isActive ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{item.label}</span>
-                {item.href === "/despeses" && alertCount > 0 && (
-                  <span
-                    className="ml-1 px-1.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-800"
-                    title={`${alertCount} despeses amb alertes (excedides o modificades a l'A3)`}
-                  >
-                    {alertCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </div>
+        {/* Row 2: sections. They wrap onto another line instead of going off the right edge */}
+        <nav aria-label="Seccions" className="border-t border-slate-200 bg-slate-50">
+          <div className="w-full max-w-[1660px] mx-auto px-4 sm:px-6 lg:px-8 py-2 flex flex-wrap items-center gap-1.5">
+            {navItems.map(item => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs sm:text-sm font-medium whitespace-nowrap transition-colors ${
+                    isActive ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-200 hover:text-slate-900"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" aria-hidden="true" />
+                  <span>{item.label}</span>
+                  {item.badge !== null && item.badge !== undefined && (
+                    <span
+                      className={`px-1.5 rounded-full text-[10px] sm:text-[11px] font-semibold ${isActive ? "bg-white/90 text-amber-800" : item.badgeColor}`}
+                      title={item.badgeTitle}
+                    >
+                      {item.badge}
+                    </span>
+                  )}
+                  {item.href === "/despeses" && alertCount > 0 && (
+                    <span
+                      className={`px-1.5 rounded-full text-[10px] sm:text-[11px] font-semibold inline-flex items-center ${isActive ? "bg-white/90 text-rose-800" : "bg-rose-100 text-rose-800"}`}
+                      title={`${alertCount} despeses amb alertes (excedides o modificades a l'A3)`}
+                      aria-label={`${alertCount} alertes`}
+                    >
+                      <AlertTriangle className="w-3 h-3 mr-0.5" aria-hidden="true" />
+                      {alertCount}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
         {/* Sync status */}
         {cloudStatus === "migration_pending" && (
           <div className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 flex flex-wrap items-center justify-center gap-2">
