@@ -276,6 +276,40 @@ describe("parseA3Excel with the A3 export layout", () => {
     expect(again.facturesNoves).toBe(0);
   });
 
+  it("merges ICF capital and interest of a flat even when the capital account has no equivalence", () => {
+    const H = [...A3_HEADERS, "Pis", "Descripció línia"];
+    const icf = (compte: string, base: number, pis: string, desc = "ICF SETEMBRE 2026") =>
+      [...a3Row(122464, "", "", compte, base, 0, 0), pis, desc];
+    // Only the interest account is mapped (as with a new loan whose capital account is not set up)
+    const eqs: Equivalencia[] = [{ compte: "662300032", descripcio: "", partida_id: "DD_ARRENDAMIENTOS" }];
+    const res = parseA3Excel(workbookBuffer([
+      H,
+      icf("520000029", 112.49, "AAG8"),
+      icf("662300032", 89.37, "AAG8", "ICF SETEMBRE 2026 "),
+      icf("662300032", 97.42, "CAL42"),
+    ]), eqs);
+    expect(res.despeses).toHaveLength(2);
+    const aag = res.despeses.find(d => d.pis === "AAG8")!;
+    expect(aag.total_factura).toBe(201.86);
+    expect(aag.partida_id).toBe("DD_ARRENDAMIENTOS");
+    expect(aag.compte_despesa).toBe("520000029");
+    expect(res.despeses.every(d => d.partida_id !== "SENSE_CORRESPONDENCIA")).toBe(true);
+  });
+
+  it("gives a merged ICF instalment the partida of its lowest mapped account", () => {
+    const H = [...A3_HEADERS, "Pis", "Descripció línia"];
+    const icf = (compte: string, base: number) => [...a3Row(122464, "", "", compte, base, 0, 0), "BAN73", "ICF SETEMBRE 2026"];
+    const eqs: Equivalencia[] = [
+      { compte: "520000013", descripcio: "", partida_id: "DD_PRESTEC" },
+      { compte: "662300016", descripcio: "", partida_id: "DD_ARRENDAMIENTOS" },
+    ];
+    // Interest first: the capital account (lower) decides
+    const res = parseA3Excel(workbookBuffer([H, icf("662300016", 79.85), icf("520000013", 311.59)]), eqs);
+    expect(res.despeses).toHaveLength(1);
+    expect(res.despeses[0].partida_id).toBe("DD_PRESTEC");
+    expect(res.despeses[0].total_factura).toBe(391.44);
+  });
+
   it("adds the lines of an extra sheet such as «Negatius», mapped by header", () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([A3_HEADERS, a3Row(1, "2026/1", "F-1", "629000000", 100, 21, 0)]), "A Exportar");

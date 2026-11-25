@@ -428,7 +428,7 @@ export default function MatriuPage() {
                 {sortTh({ sortId: "partida_id", label: "Partida", title: "Ordenar per Partida", className: "border-slate-200 hover:bg-slate-200/80" })}
                 {sortTh({ sortId: "data_emissio", label: "Data", title: "Ordenar per Data", className: "border-slate-200 hover:bg-slate-200/80" })}
                 {sortTh({ sortId: "base_imposable", label: "Base", title: "Ordenar per Base", className: "border-slate-200 hover:bg-slate-200/80", align: "right" })}
-                {sortTh({ sortId: "total_factura", label: "Total Factura", title: "Ordenar per Total Factura", className: "border-slate-200 hover:bg-slate-200/80 font-black", align: "right" })}
+                {sortTh({ sortId: "cost_total", label: "Cost Total", title: "Ordenar per Cost Total (base + IVA, l'import que s'imputa)", className: "border-slate-200 hover:bg-slate-200/80 font-black", align: "right" })}
 
                 {/* Control columns */}
                 {sortTh({ sortId: "cobert", label: "Cobert (€)", title: "Ordenar per Cobert", className: "border-slate-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100", align: "right" })}
@@ -500,8 +500,8 @@ export default function MatriuPage() {
                     <td className={`py-2 px-3 text-right border-r border-slate-100 whitespace-nowrap ${d.base_imposable < 0 ? "text-rose-600" : "text-slate-600"}`}>
                       {fmtEur(d.base_imposable)}
                     </td>
-                    <td className={`py-2 px-3 text-right font-bold border-r border-slate-200 whitespace-nowrap ${d.total_factura < 0 ? "text-rose-600" : "text-slate-900"}`}>
-                      {fmtEur(d.total_factura)}
+                    <td className={`py-2 px-3 text-right font-bold border-r border-slate-200 whitespace-nowrap ${d.cost_total < 0 ? "text-rose-600" : "text-slate-900"}`}>
+                      {fmtEur(d.cost_total)}
                     </td>
 
                     {/* Cobert & Disponible */}

@@ -352,7 +352,8 @@ function DespesesContent() {
   const selectedCount = effectiveSelectedIds.length;
 
   const selectedTotal = useMemo(() => {
-    return selectedExpenses.reduce((sum, d) => sum + (d.total_factura ?? 0), 0);
+    // Bulk actions impute the cost total (base + IVA) of each invoice
+    return selectedExpenses.reduce((sum, d) => sum + (d.cost_total ?? 0), 0);
   }, [selectedExpenses]);
 
   const selectedWithImputacions = useMemo(() => {

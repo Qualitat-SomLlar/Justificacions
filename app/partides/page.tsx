@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Partida } from "@/lib/types";
+import { findPartidaAliases } from "@/lib/partides";
 
 type SortField = "codi" | "nom" | "facturesCount" | "totalImport" | "activa";
 type SortOrder = "asc" | "desc";
@@ -32,9 +33,22 @@ export default function PartidesPage() {
     partides, 
     despeses, 
     addPartida, 
-    updatePartida, 
-    toggleBaixaPartida 
+    updatePartida,
+    toggleBaixaPartida,
+    unificarPartides
   } = useJustificacions();
+
+  // Codis fora del catàleg que són una partida del catàleg escrita d'una altra manera
+  // (p. ex. «DD_PROFESS ADMC I GESTIO» de la columna «Full destí» d'A3)
+  const partidaAliases = useMemo(() => findPartidaAliases(despeses, partides), [despeses, partides]);
+
+  // Modal propi (no window.confirm): alguns navegadors integrats tanquen els diàlegs natius
+  // sense deixar-los acceptar, i aleshores la unificació no s'aplicava
+  const [unificarModal, setUnificarModal] = useState<{ fetes: number | null } | null>(null);
+
+  const handleConfirmUnificar = () => {
+    setUnificarModal({ fetes: unificarPartides() });
+  };
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterEstat, setFilterEstat] = useState<"totes" | "actives" | "baixa">("totes");
@@ -100,15 +114,16 @@ export default function PartidesPage() {
 
   // Escape tanca els modals
   useEffect(() => {
-    if (!isModalOpen && !baixaConfirmModal) return;
+    if (!isModalOpen && !baixaConfirmModal && !unificarModal) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (baixaConfirmModal) setBaixaConfirmModal(null);
+      if (unificarModal) setUnificarModal(null);
+      else if (baixaConfirmModal) setBaixaConfirmModal(null);
       else setIsModalOpen(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isModalOpen, baixaConfirmModal]);
+  }, [isModalOpen, baixaConfirmModal, unificarModal]);
 
   // KPIs
   const totalCount = partides.length;
@@ -587,6 +602,17 @@ export default function PartidesPage() {
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right whitespace-nowrap">
+                    {partidaAliases.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setUnificarModal({ fetes: null })}
+                        title={partidaAliases.map(a => `${a.from} → ${a.to}`).join("\n")}
+                        className="inline-flex items-center space-x-1 mr-3 px-2 py-1 rounded-md text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700"
+                      >
+                        <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                        <span>Unificar {partidaAliases.reduce((s, a) => s + a.despeses, 0)} factures</span>
+                      </button>
+                    )}
                     <Link
                       href="/matriu"
                       className="inline-flex items-center space-x-1 text-xs font-semibold text-rose-700 hover:underline"
@@ -807,6 +833,80 @@ export default function PartidesPage() {
                 >
                   {baixaConfirmModal.willActivate ? "Reactivar Partida" : "Confirmar Baixa"}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmació Unificar partides escrites d'una altra manera */}
+      {unificarModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="unificar-modal-title" className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start space-x-3">
+                <div className={`p-2.5 rounded-xl ${unificarModal.fetes === null ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"}`}>
+                  {unificarModal.fetes === null ? <RefreshCw className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 id="unificar-modal-title" className="text-base font-bold text-slate-900">
+                    {unificarModal.fetes === null
+                      ? "Unificar les partides escrites d'una altra manera?"
+                      : unificarModal.fetes > 0
+                        ? `${unificarModal.fetes} factures unificades`
+                        : "No s'ha desat cap canvi"}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    {unificarModal.fetes === null
+                      ? "Aquestes factures es mouran a la partida del catàleg (exercici actiu). Les imputacions no canvien i el canvi queda registrat a l'historial."
+                      : unificarModal.fetes > 0
+                        ? "El canvi queda registrat a l'historial."
+                        : "L'aplicatiu està en mode només de consulta o hi ha un canvi pendent. Torna-ho a provar d'aquí a un moment."}
+                  </p>
+                </div>
+              </div>
+
+              {unificarModal.fetes === null && (
+                <ul className="space-y-1.5 text-xs">
+                  {partidaAliases.map(a => (
+                    <li key={a.from} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">
+                      <span className="font-mono text-rose-700 break-all">{a.from}</span>
+                      <span className="text-slate-400" aria-hidden="true">→</span>
+                      <span className="font-mono text-emerald-700 break-all">{a.to}</span>
+                      <span className="ml-auto font-semibold text-slate-600 whitespace-nowrap">{a.despeses} factures</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                {unificarModal.fetes === null ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setUnificarModal(null)}
+                      className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-semibold transition-colors"
+                    >
+                      Cancel·lar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmUnificar}
+                      disabled={partidaAliases.length === 0}
+                      className="px-4 py-2 rounded-xl text-white text-xs font-semibold shadow-sm transition-colors bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+                    >
+                      Confirmar unificació
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setUnificarModal(null)}
+                    className="px-4 py-2 rounded-xl text-white text-xs font-semibold shadow-sm transition-colors bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    Tancar
+                  </button>
+                )}
               </div>
             </div>
           </div>

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { X, Plus, Trash2, AlertTriangle, CheckCircle2, Info, Building2, Calendar, FileText, Percent, Euro } from "lucide-react";
 import { Despesa, Projecte, Imputacio } from "@/lib/types";
 import { useJustificacions } from "@/lib/store";
-import { percentCents } from "@/lib/sync_utils";
+import { importImputable, percentCents } from "@/lib/sync_utils";
 import { formatDateCa, formatPeriode, isOutsidePeriode, parsePeriode } from "@/lib/periode";
 import { execucioOf, imputatPerProjecte } from "@/lib/pressupost";
 
@@ -49,7 +49,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
         {
           projecte_id: firstProj,
           percentatge: 100,
-          import: despesa.total_factura,
+          import: importImputable(despesa),
           observacions: ""
         }
       ]);
@@ -66,12 +66,14 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
   }, [onClose]);
 
   // Credit notes (abonaments) have a negative total: percentages stay positive, amounts keep the sign
-  // Current total (a new A3 import may have changed it while the modal was open)
-  const totalFactura = (despeses.find(d => d.id === despesa.id) || despesa).total_factura;
+  // What is imputed is the cost total (base + IVA, IRPF included). Current value: a new A3 import
+  // may have changed it while the modal was open
+  const despesaActual = despeses.find(d => d.id === despesa.id) || despesa;
+  const totalImputable = importImputable(despesaActual);
   const round2 = (n: number) => Math.round(n * 100) / 100;
   // % derived from € keeps 4 decimals so that e.g. 1 € + 1 € + 1 € of 3 € adds up to 100%
   const round4 = (n: number) => Math.round(n * 10000) / 10000;
-  const importFromPercent = (p: number) => round2((p / 100) * totalFactura);
+  const importFromPercent = (p: number) => round2((p / 100) * totalImputable);
 
   // At exactly 100% the last amount takes the remainder, as the store does when saving, so that
   // what is shown is what is saved (e.g. 50% + 50% of 10,01 € is 5,01 € + 5,00 €, not 10,02 €)
@@ -81,7 +83,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
     if (percentCents(pct) !== 10000) return rows;
     const last = rows.length - 1;
     const others = rows.slice(0, last).reduce((acc, r) => acc + r.import, 0);
-    return rows.map((r, i) => (i === last ? { ...r, import: round2(totalFactura - others) } : r));
+    return rows.map((r, i) => (i === last ? { ...r, import: round2(totalImputable - others) } : r));
   };
 
   const updateRow = (index: number, patch: Partial<AllocationRow>) => {
@@ -95,13 +97,13 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
 
   const handleImportChange = (index: number, val: number) => {
     const raw = Number.isFinite(val) ? val : 0;
-    if (totalFactura === 0) {
+    if (totalImputable === 0) {
       updateRow(index, { import: 0, percentatge: 0 });
       return;
     }
     // Amount entered as a positive number is taken with the sign of the invoice
-    const imp = round2(Math.sign(totalFactura) * Math.abs(raw));
-    updateRow(index, { import: imp, percentatge: round4((imp / totalFactura) * 100) });
+    const imp = round2(Math.sign(totalImputable) * Math.abs(raw));
+    updateRow(index, { import: imp, percentatge: round4((imp / totalImputable) * 100) });
   };
 
   const handleProjectChange = (index: number, projId: string) => {
@@ -131,7 +133,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
   };
 
   const handleSet100 = (index: number) => {
-    updateRow(index, { percentatge: 100, import: totalFactura });
+    updateRow(index, { percentatge: 100, import: totalImputable });
   };
 
   const handleSetRemaining = (index: number) => {
@@ -139,12 +141,12 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
     const otherImports = allocations.reduce((acc, c, i) => i === index ? acc : acc + c.import, 0);
     const rem = Math.max(0, round4(100 - otherPercents));
     // Remaining amount computed in € so that the row closes the invoice to the cent
-    updateRow(index, { percentatge: rem, import: rem === 0 ? 0 : round2(totalFactura - otherImports) });
+    updateRow(index, { percentatge: rem, import: rem === 0 ? 0 : round2(totalImputable - otherImports) });
   };
 
   const totalImputatPercent = round2(allocations.reduce((acc, c) => acc + c.percentatge, 0));
   const totalImputatImport = round2(allocations.reduce((acc, c) => acc + c.import, 0));
-  const romanent = round2(totalFactura - totalImputatImport);
+  const romanent = round2(totalImputable - totalImputatImport);
 
   // Same criterion as the store (whole hundredths of a percent)
   const cents = percentCents(totalImputatPercent);
@@ -235,12 +237,13 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
             </div>
 
             <div className="text-right">
-              <p className="text-xs text-slate-500 font-medium">Total Factura</p>
+              <p className="text-xs text-slate-500 font-medium">Cost total a imputar (base + IVA)</p>
               <p className="text-2xl font-black text-slate-900">
-                {totalFactura.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €
+                {totalImputable.toLocaleString("ca-ES", { minimumFractionDigits: 2 })} €
               </p>
               <p className="text-xs text-slate-500">
-                Base: {despesa.base_imposable.toFixed(2)} € | IVA: {despesa.iva.toFixed(2)} € | IRPF: -{despesa.irpf.toFixed(2)} €
+                Base: {despesa.base_imposable.toFixed(2)} € | IVA: {despesa.iva.toFixed(2)} €
+                {despesa.irpf ? ` | Total factura (−IRPF ${despesa.irpf.toFixed(2)} €): ${despesaActual.total_factura.toFixed(2)} €` : ""}
               </p>
             </div>
           </div>
@@ -330,7 +333,7 @@ export default function ImputacioModal({ despesa, onClose }: ImputacioModalProps
 
                 {/* Amount input */}
                 <div className="sm:col-span-3">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Import (€){totalFactura < 0 ? " · abonament" : ""}</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Import (€){totalImputable < 0 ? " · abonament" : ""}</label>
                   <div className="relative">
                     <input
                       type="number"

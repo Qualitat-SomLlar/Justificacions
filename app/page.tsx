@@ -17,7 +17,7 @@ import {
   Loader2
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
-import { disponibleOf } from "@/lib/sync_utils";
+import { disponibleOf, importImputable } from "@/lib/sync_utils";
 import { execucioOf } from "@/lib/pressupost";
 import { foraPeriodePerProjecte } from "@/lib/informes";
 import ImportModal from "@/components/ImportModal";
@@ -72,12 +72,14 @@ export default function DashboardPage() {
     let modificadesA3Count = 0;
     let alertesCount = 0;
 
+    // Same base as the imputations: the cost total (base + IVA, IRPF included)
     for (const d of despeses) {
-      sumTotalFactura += d.total_factura;
+      const imputable = importImputable(d);
+      sumTotalFactura += imputable;
       sumTotalImputat += d.import_total;
       sumRomanent += disponibleOf(d);
-      if (d.total_factura > 0) {
-        sumFacturaPositiva += d.total_factura;
+      if (imputable > 0) {
+        sumFacturaPositiva += imputable;
         sumRomanentPositiu += disponibleOf(d);
       }
       if (d.estat === "pendent") pendents.push(d);
@@ -257,7 +259,7 @@ export default function DashboardPage() {
         {/* Total Expenses */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Factures</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider" title="Base + IVA, sense descomptar l'IRPF: és l'import que s'imputa als projectes">Cost total factures</span>
             <div className="p-2 rounded-xl bg-slate-100 text-slate-600">
               <Receipt className="w-4 h-4" />
             </div>

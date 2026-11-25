@@ -6,6 +6,8 @@ import { parseA3Excel, cleanStr } from "./parser";
 import { exportJustificacionsExcel } from "./exporter";
 import seedData from "./seed_data.json";
 import { buildBulkImputacions, buildImputacions, recalcImputacionsForTotals, round2 } from "./imputacions";
+import { canonicalPartidaId, findPartidaAliases } from "./partides";
+import { centreCost, ExcelProjecte, newProjecteId, SyncFila } from "./projectes_sync";
 import { auth, db } from "./firebase";
 import { useAuth } from "./auth";
 import {
@@ -28,7 +30,8 @@ import {
   hasChanges,
   percentCents,
   pickMigrationSource,
-  splitByExercici
+  splitByExercici,
+  importImputable
 } from "./sync_utils";
 
 /**
@@ -81,6 +84,8 @@ interface JustificacionsContextType {
     comentariGlobal?: string
   ) => void;
   bulkAssignPartida: (despesaIds: string[], partidaId: string, comentaris?: string) => void;
+  /** Moves the despeses whose partida is a catalog partida written another way to the catalog one */
+  unificarPartides: () => number;
   bulkImputar: (despesaIds: string[], allocations: { projecte_id: string; percentatge: number }[], comentaris?: string) => void;
   bulkResetImputacions: (despesaIds: string[], comentaris?: string) => void;
   bulkDeleteDespeses: (despesaIds: string[], comentaris?: string) => void;
@@ -88,6 +93,8 @@ interface JustificacionsContextType {
   updateProjecte: (p: Projecte) => void;
   deleteProjecte: (id: string) => void;
   setProjecteActiu: (id: string, actiu: boolean) => void;
+  /** Updates/creates projects so the catalog follows the justification Excel */
+  sincronitzarProjectes: (files: Pick<SyncFila, "excel" | "accio" | "projecteId">[]) => { actualitzats: number; creats: number };
   addPartida: (p: { codi: string; nom: string }, comentaris?: string) => boolean;
   updatePartida: (p: Partida, comentaris?: string) => void;
   /** `activa`: the state the user asked for (instead of toggling a possibly stale one) */
@@ -684,7 +691,12 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
           : "No hi ha connexió amb el núvol: no es pot importar fins que es resolgui."
       );
     }
-    const parsed = parseA3Excel(fileBuffer, equivalencies, despeses, preferredSheet, extraSheets);
+    // Stored despeses with a misspelt partida are matched with the catalog spelling the parser now uses
+    const existingCanonical = despeses.map(d => {
+      const partida_id = canonicalPartidaId(d.partida_id, partides);
+      return partida_id === d.partida_id ? d : { ...d, partida_id };
+    });
+    const parsed = parseA3Excel(fileBuffer, equivalencies, existingCanonical, preferredSheet, extraSheets, partides);
 
     // Only invoices of the active exercici are imported: the others would end up in this
     // exercici's bucket (and be duplicated when imported again under their own exercici)
@@ -708,13 +720,14 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     for (const d of summary.despeses) {
       const prev = existingMap.get(d.id);
       if (prev) {
-        if (Math.abs(prev.total_factura - d.total_factura) > 0.005) {
-          changedTotals.set(d.id, d.total_factura);
+        // Imputations are amounts of the cost total: recalculate them when it changes
+        if (Math.abs(importImputable(prev) - importImputable(d)) > 0.005) {
+          changedTotals.set(d.id, importImputable(d));
         }
         updatedList.push({
           ...d,
           // A partida assigned manually (or by account mapping) wins over the one resolved from A3
-          partida_id: prev.partida_id && prev.partida_id !== "SENSE_CORRESPONDENCIA" ? prev.partida_id : d.partida_id,
+          partida_id: prev.partida_id && prev.partida_id !== "SENSE_CORRESPONDENCIA" ? canonicalPartidaId(prev.partida_id, partides) : d.partida_id,
           // The A3 change warning stays until someone reviews the imputation
           modificat_a3: Boolean(prev.modificat_a3 || d.modificat_a3),
         });
@@ -779,7 +792,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
   ) => {
     const currentDespesa = despeses.find(d => d.id === despesaId);
     const otherImputacions = imputacions.filter(imp => imp.despesa_id !== despesaId);
-    const newImps = buildImputacions(despesaId, currentDespesa?.total_factura, allocations, {
+    const newImps = buildImputacions(despesaId, currentDespesa ? importImputable(currentDespesa) : undefined, allocations, {
       now: new Date().toISOString(),
       usuari: currentUserEmail(),
     });
@@ -795,7 +808,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     recordLog(
       "imputacio",
       `Imputació de Factura: ${currentDespesa?.ndoc_a3 || despesaId}`,
-      `Proveïdor: ${currentDespesa?.proveidor || "-"} | Total factura: ${currentDespesa ? currentDespesa.total_factura.toFixed(2) : "-"}€ | Repartiment: ${allocSummary}`,
+      `Proveïdor: ${currentDespesa?.proveidor || "-"} | Cost total: ${currentDespesa ? importImputable(currentDespesa).toFixed(2) : "-"}€ | Repartiment: ${allocSummary}`,
       { despesa_id: despesaId, comentaris: comentariGlobal }
     );
   };
@@ -812,6 +825,22 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       `S'ha assignat la partida ${partidaId} a ${despesaIds.length} factures seleccionades.`,
       { comentaris }
     );
+  };
+
+  const unificarPartides = (): number => {
+    const aliases = findPartidaAliases(despeses, partides);
+    if (aliases.length === 0) return 0;
+    const to = new Map(aliases.map(a => [a.from, a.to]));
+    const total = aliases.reduce((s, a) => s + a.despeses, 0);
+    commit({ despeses: despeses.map(d => (to.has(d.partida_id) ? { ...d, partida_id: to.get(d.partida_id)! } : d)) });
+    // Read-only or a pending change: nothing was saved
+    if (refusedRef.current) return 0;
+    recordLog(
+      "partida",
+      `Partides unificades (${total} factures)`,
+      aliases.map(a => `${a.from} → ${a.to}: ${a.despeses} factures`).join("; ")
+    );
+    return total;
   };
 
   const bulkImputar = (
@@ -921,16 +950,20 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   // Projects CRUD
   const addProjecte = (p: Omit<Projecte, "id">): boolean => {
-    const id = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
-    if (!id) {
+    const codi = p.codi.toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "_");
+    if (!codi) {
       alert("El codi del projecte és obligatori.");
       return false;
     }
-    if (projectes.some(item => item.id === id || item.codi.toUpperCase() === id)) {
-      alert(`Ja existeix un projecte amb el codi ${id}.`);
+    // A project is its centre de cost: the same code can exist for different funders
+    // (e.g. IFEGEN/GEN/WIP26 and AJSBDLL/GEN/WIP26)
+    const cc = centreCost({ ...p, codi }).toUpperCase();
+    if (projectes.some(item => centreCost(item).toUpperCase() === cc)) {
+      alert(`Ja existeix el projecte ${centreCost({ ...p, codi })}.`);
       return false;
     }
-    commit({ projectes: [...projectes, { ...p, id, codi: id, actiu: true }] });
+    const id = newProjecteId({ ...p, codi }, new Set(projectes.map(item => item.id)));
+    commit({ projectes: [...projectes, { ...p, id, codi, actiu: true }] });
 
     recordLog(
       "projecte",
@@ -952,6 +985,44 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
       `Finançador: ${p.financador || "-"} | Àrea: ${p.area || "-"} | Dates: ${p.dates_text}`,
       { projecte_id: p.id }
     );
+  };
+
+  /**
+   * Brings the project catalog in line with the justification Excel: updates the paired projects
+   * (their ID does not change, so imputations stay with them) and creates the missing ones.
+   */
+  const sincronitzarProjectes = (files: Pick<SyncFila, "excel" | "accio" | "projecteId">[]): { actualitzats: number; creats: number } => {
+    const usedIds = new Set(projectes.map(p => p.id));
+    const updates = new Map<string, ExcelProjecte>();
+    const nous: Projecte[] = [];
+    for (const f of files) {
+      if (f.accio === "actualitzar" && f.projecteId) updates.set(f.projecteId, f.excel);
+      if (f.accio === "crear") {
+        const id = newProjecteId(f.excel, usedIds);
+        usedIds.add(id);
+        nous.push({ id, codi: f.excel.codi, nom: f.excel.nom, financador: f.excel.financador, area: f.excel.area, dates_text: f.excel.dates_text, actiu: true });
+      }
+    }
+    if (updates.size === 0 && nous.length === 0) return { actualitzats: 0, creats: 0 };
+    const updated = projectes.map(p => {
+      const e = updates.get(p.id);
+      if (!e) return p;
+      return { ...p, codi: e.codi, nom: e.nom || p.nom, financador: e.financador, area: e.area, dates_text: e.dates_text || p.dates_text, actiu: true };
+    });
+    commit({ projectes: [...updated, ...nous] });
+    if (refusedRef.current) return { actualitzats: 0, creats: 0 };
+    recordLog(
+      "projecte",
+      `Catàleg de projectes actualitzat des de l'Excel (${updates.size} actualitzats, ${nous.length} nous)`,
+      [
+        ...Array.from(updates.entries()).map(([id, e]) => {
+          const before = projectes.find(p => p.id === id)!;
+          return `${centreCost(before)} → ${e.cc}`;
+        }),
+        ...nous.map(p => `Nou: ${centreCost(p)}`),
+      ].join("; ")
+    );
+    return { actualitzats: updates.size, creats: nous.length };
   };
 
   const setProjecteActiu = (id: string, actiu: boolean) => {
@@ -1138,6 +1209,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         updateProjecte,
         deleteProjecte,
         setProjecteActiu,
+        sincronitzarProjectes,
         addPartida,
         updatePartida,
         toggleBaixaPartida,
@@ -1146,6 +1218,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         deleteEquivalencia,
         assignPartidaToCompte,
         bulkAssignPartida,
+        unificarPartides,
         bulkImputar,
         bulkResetImputacions,
         bulkDeleteDespeses,
