@@ -321,7 +321,7 @@ function LoginPage({
               <path fill="#00A4EF" d="M1 12h10v10H1z" />
               <path fill="#FFB900" d="M12 12h10v10H12z" />
             </svg>
-            <span>Iniciar sessió amb Microsoft (Outlook / Microsoft 365)</span>
+            <span>Iniciar sessió amb Microsoft</span>
           </button>
           )}
 
@@ -339,7 +339,7 @@ function LoginPage({
         {/* Footer info */}
         <div className="pt-4 border-t border-slate-100 text-center">
           <p className="text-[11px] text-slate-400">
-            Som Llar &bull; Associació ProHabitatge &bull; Exercici 2026
+            Associació Som Llar &bull; Exercici 2026
           </p>
         </div>
 
