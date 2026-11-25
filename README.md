@@ -75,7 +75,7 @@ L'accés amb comptes de Microsoft 365 (Outlook corporatiu) necessita aquesta con
    - *Redirect URI* (Web): `https://justificacions.firebaseapp.com/__/auth/handler`.
    - A *Certificates & secrets*, creeu un *client secret* i copieu-ne el valor.
 2. **Firebase > Authentication > Sign-in method > Add new provider > Microsoft**: enganxeu l'*Application (client) ID* i el *client secret*, i deseu.
-3. **Vercel > Settings > Environment Variables**: `NEXT_PUBLIC_MICROSOFT_TENANT_ID` = el *Directory (tenant) ID* de l'aplicació. Torneu a desplegar.
+3. **Vercel > Settings > Environment Variables**: `NEXT_PUBLIC_MICROSOFT_TENANT_ID` = el *Directory (tenant) ID* de l'aplicació. Torneu a desplegar. **Mentre no hi sigui, el botó de Microsoft no es mostra** (sense el tenant, comptes d'altres organitzacions podrien arribar a iniciar sessió).
 4. **Firebase > Firestore > Rules**: publiqueu el contingut de `firestore.rules`.
 
 Si un correu ja tenia accés amb Google, en entrar amb Microsoft l'aplicatiu demana entrar amb Google i, un cop dins, vincula tots dos mètodes al mateix compte.

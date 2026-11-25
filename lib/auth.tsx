@@ -12,7 +12,7 @@ import {
   onAuthStateChanged
 } from "firebase/auth";
 import { waitForPendingWrites } from "firebase/firestore";
-import { auth, db, googleProvider, microsoftProvider } from "./firebase";
+import { auth, db, googleProvider, microsoftProvider, MICROSOFT_LOGIN_ENABLED } from "./firebase";
 import { accountEmail, isAllowedEmail, LoginProvider, loginErrorMessage } from "./access";
 import { ShieldCheck, AlertCircle, UserCheck } from "lucide-react";
 
@@ -208,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ) : !user ? (
         <LoginPage
           onLogin={loginWithGoogle}
-          onLoginMicrosoft={loginWithMicrosoft}
+          onLoginMicrosoft={MICROSOFT_LOGIN_ENABLED ? loginWithMicrosoft : undefined}
           onLoginDemo={DEMO_LOGIN_ENABLED ? loginAsDemo : undefined}
           error={error} 
           onClearError={clearError} 
@@ -237,7 +237,8 @@ function LoginPage({
   onClearError
 }: {
   onLogin: () => void;
-  onLoginMicrosoft: () => void;
+  /** Undefined while the Microsoft sign-in is not configured (no tenant ID) */
+  onLoginMicrosoft?: () => void;
   onLoginDemo?: () => void;
   error: string | null; 
   onClearError: () => void; 
@@ -267,7 +268,7 @@ function LoginPage({
           <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div>
             <span className="font-bold text-slate-800 block">Accés Corporatiu Protegit</span>
-            <span>Només el personal acreditat amb correu corporatiu <strong>@somllar.cat</strong> o <strong>@prohabitatge.org</strong> té accés a aquest sistema, amb el compte de Google o de Microsoft.</span>
+            <span>Només el personal acreditat amb correu corporatiu <strong>@somllar.cat</strong> o <strong>@prohabitatge.org</strong> té accés a aquest sistema, amb el compte de Google{onLoginMicrosoft ? " o de Microsoft" : ""}.</span>
           </div>
         </div>
 
@@ -309,6 +310,7 @@ function LoginPage({
             <span>Iniciar sessió amb Google</span>
           </button>
 
+          {onLoginMicrosoft && (
           <button
             onClick={onLoginMicrosoft}
             className="w-full flex items-center justify-center space-x-3 px-4 py-3.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-900 font-semibold text-sm border border-slate-300 shadow-sm hover:shadow-md transition-all transform active:scale-98"
@@ -321,6 +323,7 @@ function LoginPage({
             </svg>
             <span>Iniciar sessió amb Microsoft (Outlook / Microsoft 365)</span>
           </button>
+          )}
 
           {onLoginDemo && (
           <button

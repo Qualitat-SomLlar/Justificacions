@@ -44,13 +44,16 @@ googleProvider.setCustomParameters({
   prompt: "select_account"
 });
 
-// Microsoft (Entra ID / Microsoft 365). Only work or school accounts: with the organisation's
-// tenant ID, only that directory; otherwise any organisation ("organizations"), and the e-mail
-// domain check decides. The app registration in Azure must be single-tenant (see README).
+// Microsoft (Entra ID / Microsoft 365): only accounts of the organisation's directory. The
+// Firestore rules trust Microsoft accounts because the Azure app registration is single-tenant
+// (see README), so the option is offered only once the tenant ID is configured: without it,
+// accounts of other organisations could reach the sign-in.
+const MICROSOFT_TENANT_ID = (process.env.NEXT_PUBLIC_MICROSOFT_TENANT_ID || "").trim();
+export const MICROSOFT_LOGIN_ENABLED = MICROSOFT_TENANT_ID !== "";
 export const microsoftProvider = new OAuthProvider("microsoft.com");
 microsoftProvider.setCustomParameters({
   prompt: "select_account",
-  tenant: process.env.NEXT_PUBLIC_MICROSOFT_TENANT_ID || "organizations",
+  tenant: MICROSOFT_TENANT_ID,
 });
 microsoftProvider.addScope("email");
 microsoftProvider.addScope("profile");
