@@ -1,21 +1,27 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { 
-  User, 
-  signInWithPopup, 
-  signOut as fbSignOut, 
-  onAuthStateChanged 
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import {
+  User,
+  AuthCredential,
+  OAuthProvider,
+  GoogleAuthProvider,
+  signInWithPopup,
+  linkWithCredential,
+  signOut as fbSignOut,
+  onAuthStateChanged
 } from "firebase/auth";
 import { waitForPendingWrites } from "firebase/firestore";
-import { auth, db, googleProvider } from "./firebase";
-import { ShieldCheck, AlertCircle, LogIn, Lock, CheckCircle2, UserCheck } from "lucide-react";
+import { auth, db, googleProvider, microsoftProvider, MICROSOFT_LOGIN_ENABLED } from "./firebase";
+import { accountEmail, isAllowedEmail, LoginProvider, loginErrorMessage } from "./access";
+import { ShieldCheck, AlertCircle, UserCheck } from "lucide-react";
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   error: string | null;
   loginWithGoogle: () => Promise<void>;
+  loginWithMicrosoft: () => Promise<void>;
   loginAsDemo: () => void;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -23,9 +29,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// Authorized domains & whitelisted administrative emails
-const ALLOWED_DOMAINS = ["somllar.cat", "prohabitatge.org"];
-const ALLOWED_EMAILS = ["litofortuna@gmail.com", "secretariadq@gmail.com"];
+const notAllowedMessage = (email: string) =>
+  `El compte "${email || "sense correu"}" no té permís d'accés. Aquesta plataforma està restringida als comptes corporatius @somllar.cat i @prohabitatge.org.`;
 
 // El mode proves no passa per Firebase Auth: només s'activa en desenvolupament local
 // o si s'habilita explícitament amb NEXT_PUBLIC_ENABLE_DEMO_LOGIN=true.
@@ -59,21 +64,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        const email = (currentUser.email || "").toLowerCase();
-        const domain = email.split("@")[1] || "";
-
-        const isDomainAllowed = ALLOWED_DOMAINS.includes(domain);
-        const isEmailAllowed = ALLOWED_EMAILS.includes(email);
-
-        if (isDomainAllowed || isEmailAllowed) {
+        const email = accountEmail(currentUser);
+        if (isAllowedEmail(email)) {
           setUser(currentUser);
           setError(null);
         } else {
           await fbSignOut(auth);
           setUser(null);
-          setError(
-            `El compte "${email}" no té permís d'accés. Aquesta plataforma està restringida exclusivament a comptes corporatius @somllar.cat.`
-          );
+          setError(notAllowedMessage(email));
         }
       } else {
         setUser(null);
@@ -84,37 +82,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const loginWithGoogle = async () => {
+  // Credential of a provider whose e-mail already has an account with the other provider:
+  // linked to the account once the person signs in with that other provider.
+  const pendingLink = useRef<{ credential: AuthCredential; provider: LoginProvider } | null>(null);
+
+  const loginWith = async (provider: LoginProvider) => {
     setError(null);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const email = (result.user.email || "").toLowerCase();
-      const domain = email.split("@")[1] || "";
-
-      if (!ALLOWED_DOMAINS.includes(domain) && !ALLOWED_EMAILS.includes(email)) {
+      const result = await signInWithPopup(auth, provider === "google" ? googleProvider : microsoftProvider);
+      const email = accountEmail(result.user);
+      if (!isAllowedEmail(email)) {
+        pendingLink.current = null;
         await fbSignOut(auth);
         setUser(null);
-        setError(
-          `El compte "${email}" no té autorització. Si us plau, utilitza el teu correu corporatiu @somllar.cat.`
-        );
-      } else {
-        setUser(result.user);
-      }
-    } catch (err: any) {
-      console.error("Error d'autenticació Firebase:", err);
-      if (err.code === "auth/popup-closed-by-user") {
+        setError(notAllowedMessage(email));
         return;
       }
-      if (err.code === "auth/operation-not-allowed" || err.code === "auth/configuration-not-found") {
+      const pending = pendingLink.current;
+      if (pending && pending.provider !== provider) {
+        pendingLink.current = null;
+        try {
+          await linkWithCredential(result.user, pending.credential);
+        } catch (linkErr) {
+          // Signing in worked; the other method can be linked another time
+          console.warn("No s'ha pogut vincular el segon mètode d'inici de sessió:", linkErr);
+        }
+      }
+      setUser(result.user);
+    } catch (err: any) {
+      console.error("Error d'autenticació Firebase:", err);
+      if (err?.code === "auth/account-exists-with-different-credential") {
+        const credential = provider === "google"
+          ? GoogleAuthProvider.credentialFromError(err)
+          : OAuthProvider.credentialFromError(err);
+        if (credential) pendingLink.current = { credential, provider };
+      }
+      const message = loginErrorMessage(err?.code, provider, err?.message);
+      if (message) {
         setError(
-          "El proveïdor d'inici de sessió de Google s'ha d'activar a la Consola de Firebase (Authentication > Sign-in method > Google)." +
-            (DEMO_LOGIN_ENABLED ? " Pots utilitzar el botó de 'Mode Proves' a continuació mentre s'activa." : "")
+          message +
+            (DEMO_LOGIN_ENABLED && (err?.code === "auth/operation-not-allowed" || err?.code === "auth/configuration-not-found")
+              ? " Pots utilitzar el botó de 'Mode Proves' mentre s'activa."
+              : "")
         );
-      } else {
-        setError(err.message || "S'ha produït un error en iniciar la sessió.");
       }
     }
   };
+
+  const loginWithGoogle = () => loginWith("google");
+  const loginWithMicrosoft = () => loginWith("microsoft");
 
   const loginAsDemo = () => {
     if (!DEMO_LOGIN_ENABLED) return;
@@ -172,6 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         error,
         loginWithGoogle,
+        loginWithMicrosoft,
         loginAsDemo,
         logout,
         clearError,
@@ -189,8 +206,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       ) : !user ? (
-        <LoginPage 
-          onLogin={loginWithGoogle} 
+        <LoginPage
+          onLogin={loginWithGoogle}
+          onLoginMicrosoft={MICROSOFT_LOGIN_ENABLED ? loginWithMicrosoft : undefined}
           onLoginDemo={DEMO_LOGIN_ENABLED ? loginAsDemo : undefined}
           error={error} 
           onClearError={clearError} 
@@ -211,13 +229,16 @@ export function useAuth() {
 }
 
 // Login Screen component with Som Llar Corporate Identity
-function LoginPage({ 
-  onLogin, 
+function LoginPage({
+  onLogin,
+  onLoginMicrosoft,
   onLoginDemo,
-  error, 
-  onClearError 
-}: { 
-  onLogin: () => void; 
+  error,
+  onClearError
+}: {
+  onLogin: () => void;
+  /** Undefined while the Microsoft sign-in is not configured (no tenant ID) */
+  onLoginMicrosoft?: () => void;
   onLoginDemo?: () => void;
   error: string | null; 
   onClearError: () => void; 
@@ -247,7 +268,7 @@ function LoginPage({
           <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div>
             <span className="font-bold text-slate-800 block">Accés Corporatiu Protegit</span>
-            <span>Només el personal acreditat amb correu corporatiu <strong>@somllar.cat</strong> té accés a aquest sistema.</span>
+            <span>Només el personal acreditat amb correu corporatiu <strong>@somllar.cat</strong> o <strong>@prohabitatge.org</strong> té accés a aquest sistema, amb el compte de Google{onLoginMicrosoft ? " o de Microsoft" : ""}.</span>
           </div>
         </div>
 
@@ -286,8 +307,23 @@ function LoginPage({
                 d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"
               />
             </svg>
-            <span>Iniciar sessió amb compte @somllar.cat</span>
+            <span>Iniciar sessió amb Google</span>
           </button>
+
+          {onLoginMicrosoft && (
+          <button
+            onClick={onLoginMicrosoft}
+            className="w-full flex items-center justify-center space-x-3 px-4 py-3.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-900 font-semibold text-sm border border-slate-300 shadow-sm hover:shadow-md transition-all transform active:scale-98"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 23 23" aria-hidden="true">
+              <path fill="#F25022" d="M1 1h10v10H1z" />
+              <path fill="#7FBA00" d="M12 1h10v10H12z" />
+              <path fill="#00A4EF" d="M1 12h10v10H1z" />
+              <path fill="#FFB900" d="M12 12h10v10H12z" />
+            </svg>
+            <span>Iniciar sessió amb Microsoft (Outlook / Microsoft 365)</span>
+          </button>
+          )}
 
           {onLoginDemo && (
           <button
