@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
-import { Despesa, Imputacio, Projecte, Partida } from "./types";
+import { Despesa, Imputacio, Projecte, Partida, Equivalencia } from "./types";
 import { disponibleOf } from "./sync_utils";
+import { cleanStr } from "./parser";
 
 const BASE_HEADERS = [
   "NUM. APUNTE",
@@ -29,6 +30,47 @@ const BASE_HEADERS = [
   "TOTAL COBERT",
   "TOTAL DISPONIBLE"
 ];
+
+/** Columns an equivalence can choose to sort its invoices by in the exported partida sheet */
+export const ORDENAR_PER_OPCIONS = ["CODI ANALÍTIC PIS", "PROVEÏDOR"] as const;
+
+const compareCells = (a: any, b: any): number => {
+  const sa = a == null ? "" : String(a).trim();
+  const sb = b == null ? "" : String(b).trim();
+  if (sa === "" || sb === "") return sa === sb ? 0 : sa === "" ? 1 : -1; // empty values last
+  return sa.localeCompare(sb, "ca", { numeric: true, sensitivity: "base" });
+};
+
+/**
+ * Sorts the data rows of a partida sheet by the column chosen in the equivalence of each row's account.
+ * - No account of the sheet has a column chosen: original order.
+ * - All the chosen columns are the same: the whole sheet is sorted by it.
+ * - Different columns: rows are grouped by account (in order of appearance) and each group is sorted by its own column.
+ * The sort is stable, so ties keep the original order.
+ */
+function sortRowsByEquivalencia(rows: { compte: string; row: any[] }[], colByCompte: Map<string, number>): any[][] {
+  const colOf = (compte: string) => colByCompte.get(cleanStr(compte));
+  const cols = new Set(rows.map(r => colOf(r.compte)).filter((c): c is number => c !== undefined));
+  if (cols.size === 0) return rows.map(r => r.row);
+  if (cols.size === 1) {
+    const col = [...cols][0];
+    return [...rows].sort((a, b) => compareCells(a.row[col], b.row[col])).map(r => r.row);
+  }
+  const groupOrder = new Map<string, number>();
+  rows.forEach(r => {
+    const key = cleanStr(r.compte);
+    if (!groupOrder.has(key)) groupOrder.set(key, groupOrder.size);
+  });
+  return [...rows]
+    .sort((a, b) => {
+      const ga = groupOrder.get(cleanStr(a.compte))!;
+      const gb = groupOrder.get(cleanStr(b.compte))!;
+      if (ga !== gb) return ga - gb;
+      const col = colOf(a.compte);
+      return col === undefined ? 0 : compareCells(a.row[col], b.row[col]);
+    })
+    .map(r => r.row);
+}
 
 // Excel sheet names: max 31 chars, no : \ / ? * [ ] and unique (case-insensitive)
 function uniqueSheetName(raw: string, used: Set<string>): string {
@@ -60,9 +102,17 @@ export function exportJustificacionsExcel(
   imputacions: Imputacio[],
   projectes: Projecte[],
   partides: Partida[],
-  exercici: number
+  exercici: number,
+  equivalencies: Equivalencia[] = []
 ): Uint8Array {
   const wb = XLSX.utils.book_new();
+
+  // Sort column (index in the base columns) chosen for each account
+  const colByCompte = new Map<string, number>();
+  for (const eq of equivalencies) {
+    const col = eq.ordenar_per ? BASE_HEADERS.indexOf(eq.ordenar_per) : -1;
+    if (col !== -1 && cleanStr(eq.compte)) colByCompte.set(cleanStr(eq.compte), col);
+  }
 
   // Index allocations by despesa_id and projecte_id
   const imputacionsMap = new Map<string, Map<string, Imputacio>>();
@@ -227,6 +277,7 @@ export function exportJustificacionsExcel(
     sheetRows.push(row7);
 
     // Data Rows
+    const dataRows: { compte: string; row: any[] }[] = [];
     for (const d of list) {
       const dImputacions = imputacionsMap.get(d.id);
       const totalCobert = d.import_total;
@@ -272,8 +323,9 @@ export function exportJustificacionsExcel(
         }
       }
 
-      sheetRows.push(dRow);
+      dataRows.push({ compte: d.compte_despesa, row: dRow });
     }
+    sheetRows.push(...sortRowsByEquivalencia(dataRows, colByCompte));
 
     const ws = XLSX.utils.aoa_to_sheet(sheetRows);
     // Amounts and percentages of the data rows (they start after the 7 header rows)

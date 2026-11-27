@@ -169,3 +169,40 @@ describe("exportJustificacionsExcel", () => {
   });
 });
 
+
+describe("exportJustificacionsExcel: ordre per equivalència", () => {
+  const ids = (wb: XLSX.WorkBook) => sheetRows(wb, "DD_SERVEIS").slice(7).map(r => r[1]);
+  const eq = (compte: string, ordenar_per?: string) => ({ compte, descripcio: "", partida_id: "DD_SERVEIS", ordenar_per });
+
+  it("keeps the original order when no account has a sort column", () => {
+    const despeses = [
+      despesa({ id: "A", ndoc_a3: "A", proveidor: "Zeta" }),
+      despesa({ id: "B", ndoc_a3: "B", proveidor: "Alfa" }),
+    ];
+    expect(ids(read(exportJustificacionsExcel(despeses, [], [], partides, 2026, [eq("629000000")])))).toEqual(["A", "B"]);
+  });
+
+  it("sorts the whole sheet by the chosen column, empty values last", () => {
+    const despeses = [
+      despesa({ id: "A", ndoc_a3: "A", proveidor: "Zeta" }),
+      despesa({ id: "B", ndoc_a3: "B", proveidor: "" }),
+      despesa({ id: "C", ndoc_a3: "C", proveidor: "àlfa" }),
+      despesa({ id: "D", ndoc_a3: "D", proveidor: "Beta", compte_despesa: "629000001" }),
+    ];
+    const wb = read(exportJustificacionsExcel(despeses, [], [], partides, 2026, [eq("629000000", "PROVEÏDOR")]));
+    expect(ids(wb)).toEqual(["C", "D", "A", "B"]);
+  });
+
+  it("groups by account when the accounts of a sheet use different columns", () => {
+    const despeses = [
+      despesa({ id: "A", ndoc_a3: "A", proveidor: "Zeta", pis: "P1" }),
+      despesa({ id: "B", ndoc_a3: "B", compte_despesa: "622000011", pis: "P10", proveidor: "Alfa" }),
+      despesa({ id: "C", ndoc_a3: "C", proveidor: "Alfa", pis: "P9" }),
+      despesa({ id: "D", ndoc_a3: "D", compte_despesa: "622000011", pis: "P2", proveidor: "Zeta" }),
+    ];
+    const wb = read(
+      exportJustificacionsExcel(despeses, [], [], partides, 2026, [eq("629000000", "PROVEÏDOR"), eq("622000011", "CODI ANALÍTIC PIS")])
+    );
+    expect(ids(wb)).toEqual(["C", "A", "D", "B"]);
+  });
+});
