@@ -417,7 +417,7 @@ export default function DashboardPage() {
                   <th className="pb-3">Àrea</th>
                   <th className="pb-3 text-center">Factures</th>
                   <th className="pb-3 text-right">Total Justificat</th>
-                  <th className="pb-3 text-right" title="Imputat sobre el pressupost total del projecte">Execució pressupost</th>
+                  <th className="pb-3 text-right" title="Imputat sobre la subvenció atorgada al projecte">Subvenció atorgada</th>
                   <th className="pb-3 text-right">Despeses per Partida</th>
                 </tr>
               </thead>
