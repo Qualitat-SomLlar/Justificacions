@@ -87,6 +87,10 @@ interface JustificacionsContextType {
   /** Moves the despeses whose partida is a catalog partida written another way to the catalog one */
   unificarPartides: () => number;
   bulkImputar: (despesaIds: string[], allocations: { projecte_id: string; percentatge: number }[], comentaris?: string) => void;
+  importImputacionsTreball: (
+    canvis: { despesa_id: string; allocations: { projecte_id: string; percentatge: number; import: number }[] }[],
+    resum: { fitxer: string; sobreescrites: number; noves: number; avisos: string }
+  ) => void;
   bulkResetImputacions: (despesaIds: string[], comentaris?: string) => void;
   bulkDeleteDespeses: (despesaIds: string[], comentaris?: string) => void;
   addProjecte: (p: Omit<Projecte, "id">) => boolean;
@@ -876,6 +880,40 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     );
   };
 
+  /**
+   * Imputations read from a working Excel: replaces the imputations of every invoice in `canvis`
+   * (one write and one history entry for the whole import).
+   */
+  const importImputacionsTreball = (
+    canvis: { despesa_id: string; allocations: { projecte_id: string; percentatge: number; import: number }[] }[],
+    resum: { fitxer: string; sobreescrites: number; noves: number; avisos: string }
+  ) => {
+    if (canvis.length === 0) return;
+    const idSet = new Set(canvis.map(c => c.despesa_id));
+    const despesaById = new Map(despeses.map(d => [d.id, d]));
+    const meta = { now: new Date().toISOString(), usuari: currentUserEmail() };
+    const newImps = canvis.flatMap(c => {
+      const d = despesaById.get(c.despesa_id);
+      return buildImputacions(
+        c.despesa_id,
+        d ? importImputable(d) : undefined,
+        c.allocations.map(a => ({ ...a, observacions: `Importat de ${resum.fitxer}` })),
+        meta
+      );
+    });
+    const despesesUpdate = despeses.some(d => idSet.has(d.id) && d.modificat_a3)
+      ? despeses.map(d => (idSet.has(d.id) && d.modificat_a3 ? { ...d, modificat_a3: false } : d))
+      : undefined;
+
+    commit({ imputacions: [...imputacions.filter(imp => !idSet.has(imp.despesa_id)), ...newImps], despeses: despesesUpdate });
+
+    recordLog(
+      "imputacio",
+      `Importació d'Imputacions des d'Excel (${canvis.length} factures)`,
+      `Fitxer: ${resum.fitxer}. ${resum.noves} factures sense imputació prèvia i ${resum.sobreescrites} amb imputacions substituïdes; ${newImps.length} imputacions a projectes.${resum.avisos ? ` ${resum.avisos}` : ""}`
+    );
+  };
+
   const bulkResetImputacions = (despesaIds: string[], comentaris?: string) => {
     if (despesaIds.length === 0) return;
     const idSet = new Set(despesaIds);
@@ -1241,6 +1279,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         bulkAssignPartida,
         unificarPartides,
         bulkImputar,
+        importImputacionsTreball,
         bulkResetImputacions,
         bulkDeleteDespeses,
         addManualLog,
