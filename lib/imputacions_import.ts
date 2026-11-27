@@ -143,7 +143,7 @@ export function readFitxerTreball(buffer: ArrayBuffer | Uint8Array): FitxerTreba
 
 /**
  * Suggested project of the app for each column of the file: same code, finançador and àrea;
- * otherwise same code and finançador; otherwise the code alone when only one project has it.
+ * otherwise same code and finançador when only one project has them.
  */
 export function suggestProjectes(columnes: ColumnaProjecte[], projectes: Projecte[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -152,7 +152,8 @@ export function suggestProjectes(columnes: ColumnaProjecte[], projectes: Project
     const sameCodi = projectes.filter(p => norm(p.codi) === norm(c.codi) || norm(p.id) === norm(c.codi));
     const exact = sameCodi.filter(p => norm(p.financador) === norm(c.financador) && norm(p.area) === norm(c.area));
     const sameFin = sameCodi.filter(p => norm(p.financador) === norm(c.financador));
-    const pick = exact.length === 1 ? exact[0] : sameFin.length === 1 ? sameFin[0] : sameCodi.length === 1 ? sameCodi[0] : undefined;
+    // Never across finançadors: a column with another finançador is left for the person to decide
+    const pick = exact.length === 1 ? exact[0] : sameFin.length === 1 ? sameFin[0] : undefined;
     if (pick) result[c.key] = pick.id;
   }
   return result;

@@ -63,7 +63,7 @@ describe("readFullTreball", () => {
 });
 
 describe("suggestProjectes", () => {
-  it("prefers code + finançador + àrea, then code + finançador, then a unique code", () => {
+  it("prefers code + finançador + àrea, then code + finançador, never another finançador", () => {
     const projectes = [
       projecte("a", "P1", "IFEGEN", "GEN"),
       projecte("b", "P1", "IFEGEN", "LEG"),
@@ -78,7 +78,7 @@ describe("suggestProjectes", () => {
       { key: "3", codi: "P3", financador: "Z", area: "Z", files: 1 },
       { key: "4", codi: "P4", financador: "C", area: "C", files: 1 },
     ];
-    expect(suggestProjectes(cols, projectes)).toEqual({ "1": "a", "2": "c", "3": "d" });
+    expect(suggestProjectes(cols, projectes)).toEqual({ "1": "a", "2": "c" });
   });
 });
 
