@@ -102,6 +102,7 @@ interface JustificacionsContextType {
   addEquivalencia: (eq: Equivalencia) => void;
   updateEquivalencia: (eq: Equivalencia) => void;
   deleteEquivalencia: (compte: string) => void;
+  setOrdenarPerEquivalencia: (compte: string, columna: string) => void;
   assignPartidaToCompte: (compte: string, partidaId: string) => void;
   addManualLog: (titol: string, detall: string, comentaris?: string) => void;
   updateLogComentari: (logId: string, comentari: string) => void;
@@ -917,9 +918,15 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
    */
   const upsertEquivalencia = (eq: Equivalencia): { previous?: Equivalencia; affected: number } => {
     const previous = equivalencies.find(e => sameCompte(e.compte, eq.compte));
+    // An empty sort column removes it (Firestore does not accept undefined values)
+    const withOrdre = (e: Equivalencia): Equivalencia => {
+      if (e.ordenar_per) return e;
+      const { ordenar_per: _omit, ...rest } = e;
+      return rest;
+    };
     const updatedEqs = previous
-      ? equivalencies.map(e => (sameCompte(e.compte, eq.compte) ? { ...e, ...eq, compte: e.compte } : e))
-      : [...equivalencies, eq];
+      ? equivalencies.map(e => (sameCompte(e.compte, eq.compte) ? withOrdre({ ...e, ...eq, compte: e.compte }) : e))
+      : [...equivalencies, withOrdre(eq)];
 
     let affected = 0;
     const updatedDespeses = despeses.map(d => {
@@ -1119,6 +1126,19 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
     );
   };
 
+  const setOrdenarPerEquivalencia = (compte: string, columna: string) => {
+    const existing = equivalencies.find(e => sameCompte(e.compte, compte));
+    if (!existing || (existing.ordenar_per || "") === columna) return;
+    upsertEquivalencia({ ...existing, ordenar_per: columna });
+    recordLog(
+      "equivalencia",
+      `Ordre d'Exportació: ${existing.compte}`,
+      columna
+        ? `Les factures del compte ${existing.compte} s'ordenaran per la columna ${columna} al full de la partida ${existing.partida_id}.`
+        : `Les factures del compte ${existing.compte} ja no s'ordenen per cap columna a l'exportació.`
+    );
+  };
+
   const deleteEquivalencia = (compte: string) => {
     commit({ equivalencies: equivalencies.filter(e => e.compte !== compte) });
 
@@ -1153,7 +1173,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
 
   // Export to Excel
   const exportToExcel = () => {
-    const buffer = exportJustificacionsExcel(despeses, imputacions, projectes, partides, activeExercici);
+    const buffer = exportJustificacionsExcel(despeses, imputacions, projectes, partides, activeExercici, equivalencies);
     const blob = new Blob([buffer as any], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1216,6 +1236,7 @@ export function JustificacionsProvider({ children }: { children: React.ReactNode
         addEquivalencia,
         updateEquivalencia,
         deleteEquivalencia,
+        setOrdenarPerEquivalencia,
         assignPartidaToCompte,
         bulkAssignPartida,
         unificarPartides,

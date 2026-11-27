@@ -1405,7 +1405,8 @@
     {
       "compte": "622000011",
       "descripcio": "REPARACIONS I MANTENIMENT TiR",
-      "partida_id": "DD_REFORMES PISOS TIR"
+      "partida_id": "DD_REFORMES PISOS TIR",
+      "ordenar_per": "CODI ANALÍTIC PIS"
     },
     {
       "compte": "622200002",
@@ -1710,7 +1711,8 @@
     {
       "compte": "627000000",
       "descripcio": "Publicidad, propaganda y relac",
-      "partida_id": "DD_QUOTES ASSOCIACIONS"
+      "partida_id": "DD_QUOTES ASSOCIACIONS",
+      "ordenar_per": "PROVEÏDOR"
     },
     {
       "compte": "627000001",
@@ -1720,7 +1722,8 @@
     {
       "compte": "629500002",
       "descripcio": "CONSULTORIA RRHH",
-      "partida_id": "DD_PROFESS ADMC i GESTIO"
+      "partida_id": "DD_PROFESS ADMC i GESTIO",
+      "ordenar_per": "PROVEÏDOR"
     },
     {
       "compte": "629500003",

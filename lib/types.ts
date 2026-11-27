@@ -62,6 +62,8 @@ export interface Equivalencia {
   compte: string;
   descripcio: string;
   partida_id: string;
+  /** Column of the exported partida sheet (one of ORDENAR_PER_OPCIONS) by which this account's invoices are sorted */
+  ordenar_per?: string;
 }
 
 export interface ImportSummary {

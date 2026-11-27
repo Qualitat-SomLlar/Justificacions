@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Search, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, X } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { Equivalencia } from "@/lib/types";
+import { ORDENAR_PER_OPCIONS } from "@/lib/exporter";
 
 type SortField = "compte" | "descripcio" | "partida_id";
 type SortOrder = "asc" | "desc";
@@ -15,6 +16,7 @@ export default function EquivalenciesPage() {
     despeses, 
     addEquivalencia, 
     deleteEquivalencia,
+    setOrdenarPerEquivalencia,
     assignPartidaToCompte,
     reloadSeedData
   } = useJustificacions();
@@ -319,6 +321,9 @@ export default function EquivalenciesPage() {
                     {renderSortIcon("partida_id")}
                   </div>
                 </th>
+                <th className="py-3.5 px-4" title="Columna per la qual s'ordenen les factures d'aquest compte al full de la partida quan s'exporta a Excel">
+                  Ordenar per (Excel)
+                </th>
                 <th className="py-3.5 px-4 text-right">Accions</th>
               </tr>
             </thead>
@@ -336,6 +341,22 @@ export default function EquivalenciesPage() {
                       {eq.partida_id}
                     </span>
                   </td>
+                  <td className="py-3 px-4">
+                    <select
+                      value={eq.ordenar_per || ""}
+                      onChange={(e) => setOrdenarPerEquivalencia(eq.compte, e.target.value)}
+                      aria-label={`Columna per ordenar les factures del compte ${eq.compte} a l'exportació`}
+                      className={`px-2 py-1 rounded-lg border text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none ${eq.ordenar_per ? "border-emerald-300 bg-emerald-50 text-emerald-800 font-semibold" : "border-slate-200 text-slate-400"}`}
+                    >
+                      <option value="">—</option>
+                      {ORDENAR_PER_OPCIONS.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                      {eq.ordenar_per && !(ORDENAR_PER_OPCIONS as readonly string[]).includes(eq.ordenar_per) && (
+                        <option value={eq.ordenar_per}>{eq.ordenar_per}</option>
+                      )}
+                    </select>
+                  </td>
                   <td className="py-3 px-4 text-right">
                     <button
                       onClick={() => handleDeleteEquivalencia(eq)}
@@ -351,7 +372,7 @@ export default function EquivalenciesPage() {
 
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-10 text-center text-slate-400">
+                  <td colSpan={5} className="py-10 text-center text-slate-400">
                     No s'ha trobat cap equivalència amb aquest filtre.
                   </td>
                 </tr>
