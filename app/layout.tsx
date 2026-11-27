@@ -1,12 +1,21 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { JustificacionsProvider } from "@/lib/store";
 import Navbar from "@/components/Navbar";
+import PwaRegister from "@/components/PwaRegister";
 
 export const metadata: Metadata = {
   title: "Som Llar - Gestió i Control de Justificacions",
   description: "Plataforma per a la gestió, control i imputació econòmica de justificacions de subvencions i licitacions de Som Llar.",
+  applicationName: "Som Llar - Justificacions",
+  // Installed app (PWA): name and icon on macOS / iOS
+  // (the favicon and the Apple icon come from app/icon.tsx and app/apple-icon.tsx)
+  appleWebApp: { capable: true, title: "Justificacions", statusBarStyle: "default" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#059669",
 };
 
 export default function RootLayout({
@@ -17,6 +26,7 @@ export default function RootLayout({
   return (
     <html lang="ca">
       <body className="min-h-screen flex flex-col bg-slate-100/60 text-slate-900 font-sans antialiased">
+        <PwaRegister />
         <AuthProvider>
           <JustificacionsProvider>
             <Navbar />

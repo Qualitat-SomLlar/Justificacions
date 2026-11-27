@@ -28,6 +28,15 @@ Aplicatiu web per a la gestió, control i imputació econòmica de justificacion
 - **Desplegament:** Vercel
 - **Tests:** Vitest · **CI:** GitHub Actions
 
+## Instal·lar-la com a aplicació (PWA)
+
+La plataforma es pot instal·lar a l'ordinador com una aplicació, amb finestra pròpia i icona a l'escriptori o a la barra de tasques:
+
+- **Chrome / Edge**: obriu la web i feu clic a la icona d'instal·lar de la barra d'adreces (o menú ⋮ › *Instal·la Som Llar - Justificacions* / *Aplicacions › Instal·la aquest lloc com a aplicació*).
+- **Safari (macOS)**: Fitxer › *Afegeix al Dock*.
+
+Fitxers: `app/manifest.ts` (manifest), `app/icon.tsx`, `app/apple-icon.tsx` i `app/pwa-icons/[name]/route.tsx` (icones generades en compilar, sense binaris), `public/sw.js` (service worker) i `components/PwaRegister.tsx`. El service worker **no desa res a la memòria cau**: les dades sempre són les de Firestore; només mostra un avís si no hi ha connexió.
+
 ## Desenvolupament
 
 ```bash
