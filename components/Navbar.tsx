@@ -20,10 +20,12 @@ import {
   FolderTree,
   CloudOff,
   ClipboardList,
+  MonitorDown,
   X
 } from "lucide-react";
 import { useJustificacions } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
+import { useCanInstallApp, promptInstallApp } from "@/lib/pwa_install";
 import ImportModal from "./ImportModal";
 import MigrationModal from "./MigrationModal";
 
@@ -33,6 +35,7 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isMigrationOpen, setIsMigrationOpen] = useState(false);
+  const canInstallApp = useCanInstallApp();
 
   const { pendingCount, alertCount } = useMemo(() => {
     let pending = 0;
@@ -138,6 +141,19 @@ export default function Navbar() {
                 <span className="hidden sm:inline">Exportar Excel</span>
                 <span className="sr-only sm:hidden">Exportar Excel</span>
               </button>
+
+              {/* Install as an app: only shown while the browser allows it (Chrome / Edge) */}
+              {canInstallApp && (
+                <button
+                  onClick={() => { void promptInstallApp(); }}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs sm:text-sm font-medium shadow-sm transition-all"
+                  title="Instal·lar la plataforma com a aplicació en aquest ordinador"
+                >
+                  <MonitorDown className="w-4 h-4" />
+                  <span className="hidden sm:inline">Instal·lar aplicació</span>
+                  <span className="sr-only sm:hidden">Instal·lar aplicació</span>
+                </button>
+              )}
 
               {/* User profile & Logout */}
               {user && (
