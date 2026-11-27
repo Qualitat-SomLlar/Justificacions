@@ -29,6 +29,7 @@ import { Despesa, Partida } from "@/lib/types";
 import { imputatPerProjecte } from "@/lib/pressupost";
 import ImputacioModal from "@/components/ImputacioModal";
 import ImportModal from "@/components/ImportModal";
+import ImportImputacionsModal from "@/components/ImportImputacionsModal";
 import {
   BulkPartidaModal,
   BulkImputarModal,
@@ -98,6 +99,7 @@ function DespesesContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDespesa, setSelectedDespesa] = useState<Despesa | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isImportImputacionsOpen, setIsImportImputacionsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"partides" | "taula">(projParam ? "partides" : "taula");
   const [invalidProjParam, setInvalidProjParam] = useState<string | null>(null);
   const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
@@ -487,13 +489,23 @@ function DespesesContent() {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsImportOpen(true)}
-          className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm shadow-sm transition-all"
-        >
-          <UploadCloud className="w-4 h-4" />
-          <span>Pujar Fitxer A3</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setIsImportImputacionsOpen(true)}
+            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800 font-medium text-sm shadow-sm transition-all"
+            title="Importar els percentatges per projecte d'un fitxer de treball de justificacions (un full DD_ per partida)"
+          >
+            <UploadCloud className="w-4 h-4" />
+            <span>Importar imputacions (Excel)</span>
+          </button>
+          <button
+            onClick={() => setIsImportOpen(true)}
+            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm shadow-sm transition-all"
+          >
+            <UploadCloud className="w-4 h-4" />
+            <span>Pujar Fitxer A3</span>
+          </button>
+        </div>
       </div>
 
       {/* Project Banner if a project is actively selected */}
@@ -1311,6 +1323,9 @@ function DespesesContent() {
 
       {isImportOpen && (
         <ImportModal onClose={() => setIsImportOpen(false)} />
+      )}
+      {isImportImputacionsOpen && (
+        <ImportImputacionsModal onClose={() => setIsImportImputacionsOpen(false)} />
       )}
     </div>
   );
